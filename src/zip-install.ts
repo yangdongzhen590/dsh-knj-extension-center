@@ -91,8 +91,17 @@ function assertSafeEntryPath(entryPath: string): void {
   }
 }
 
-/** Collect one entry's decompressed bytes via yauzl's read stream. */
-function readEntryContent(zipfile: yauzl.ZipFile, entry: yauzl.Entry): Promise<Buffer> {
+/**
+ * Collect one entry's decompressed bytes via yauzl's read stream, aborting
+ * (destroying the stream) the moment the cumulative bytes exceed the remaining
+ * budget, so a single entry can never be fully buffered past maxTotalBytes.
+ */
+function readEntryContent(
+  zipfile: yauzl.ZipFile,
+  entry: yauzl.Entry,
+  remaining: number,
+  totalLimit: number,
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     zipfile.openReadStream(entry, (err, stream) => {
       if (err) {
@@ -101,23 +110,40 @@ function readEntryContent(zipfile: yauzl.ZipFile, entry: yauzl.Entry): Promise<B
       }
       const chunks: Buffer[] = [];
       let size = 0;
+      let aborted = false;
       stream.on('data', (chunk: Buffer) => {
-        chunks.push(chunk);
+        if (aborted) return;
         size += chunk.length;
+        if (size > remaining) {
+          aborted = true;
+          stream.destroy();
+          reject(new ZipInstallError('size', `total unpacked size exceeds ${totalLimit} bytes`));
+          return;
+        }
+        chunks.push(chunk);
       });
-      stream.on('end', () => resolve(Buffer.concat(chunks, size)));
-      stream.on('error', reject);
+      stream.on('end', () => {
+        if (aborted) return;
+        resolve(Buffer.concat(chunks, size));
+      });
+      stream.on('error', (streamErr) => {
+        if (aborted) return;
+        reject(streamErr);
+      });
     });
   });
 }
 
 /**
  * Stream through every zip entry (lazyEntries): structurally validate the
- * path, read the content, and enforce the cumulative unpacked-bytes cap while
- * reading so a lying zip cannot balloon memory. Resolves with file entries
- * only; directory-marker entries (`name/`) are skipped.
+ * path, read the content against the remaining unpacked-bytes budget, and
+ * fail fast on the file-count limit. Resolves with file entries only;
+ * directory-marker entries (`name/`) are skipped.
  */
-function walkZip(zipBuffer: Buffer, maxTotalBytes: number): Promise<ZipEntryData[]> {
+function walkZip(
+  zipBuffer: Buffer,
+  limits: { maxTotalBytes: number; maxFiles: number },
+): Promise<ZipEntryData[]> {
   return new Promise((resolve, reject) => {
     let zipfile: yauzl.ZipFile | undefined;
     let done = false;
@@ -166,15 +192,16 @@ function walkZip(zipBuffer: Buffer, maxTotalBytes: number): Promise<ZipEntryData
             zf.readEntry();
             return;
           }
-          readEntryContent(zf, entry).then(
+          const remaining = limits.maxTotalBytes - totalBytes;
+          readEntryContent(zf, entry, remaining, limits.maxTotalBytes).then(
             (content) => {
               if (done) return;
               totalBytes += content.length;
-              if (totalBytes > maxTotalBytes) {
-                fail(new ZipInstallError('size', `total unpacked size exceeds ${maxTotalBytes} bytes`));
+              entries.push({ fileName, uncompressedSize: entry.uncompressedSize, content });
+              if (entries.length > limits.maxFiles) {
+                fail(new ZipInstallError('files', `too many files: ${entries.length} exceeds max ${limits.maxFiles}`));
                 return;
               }
-              entries.push({ fileName, uncompressedSize: entry.uncompressedSize, content });
               zf.readEntry();
             },
             fail,
@@ -202,7 +229,7 @@ async function validateZip(
   if (zipBuffer.length > limits.maxZipBytes) {
     throw new ZipInstallError('size', `zip size exceeds ${limits.maxZipBytes} bytes (actual ${zipBuffer.length})`);
   }
-  const entries = await walkZip(zipBuffer, limits.maxTotalBytes);
+  const entries = await walkZip(zipBuffer, limits);
 
   // Layout: one skill package = one top-level directory; a file at the zip
   // root or multiple top-level directories are invalid.
@@ -238,13 +265,11 @@ async function validateZip(
     throw new ZipInstallError('skill', `skill '${skillName}' has no description in SKILL.md frontmatter`);
   }
 
-  // Limits on declared sizes and entry count (actual bytes were already capped while reading).
+  // Declared-size sanity check; actual bytes were already capped while reading
+  // and the file count already failed fast inside the walk.
   const declaredTotal = entries.reduce((sum, e) => sum + e.uncompressedSize, 0);
   if (declaredTotal > limits.maxTotalBytes) {
     throw new ZipInstallError('size', `total unpacked size exceeds ${limits.maxTotalBytes} bytes (declared ${declaredTotal})`);
-  }
-  if (entries.length > limits.maxFiles) {
-    throw new ZipInstallError('files', `too many files: ${entries.length} exceeds max ${limits.maxFiles}`);
   }
 
   return { skillName, skillContent: skillEntry.content.toString('utf8'), entries };

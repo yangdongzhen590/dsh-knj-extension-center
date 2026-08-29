@@ -74,3 +74,67 @@ describe('installZip', () => {
     expect(existsSync(join(root, 'my-skill'))).toBe(false);
   });
 });
+
+describe('installZip security matrix', () => {
+  it('rejects backslash entry paths (win32 traversal)', async () => {
+    const root = tmpDir();
+    const buf = await makeZip({ 'my-skill/SKILL.md': '---\nname: my-skill\ndescription: d\n---\n', 'my-skill\\..\\evil.txt': 'x' });
+    await expect(installZip({ zipBuffer: buf, baseDir: root })).rejects.toThrow(/path/i);
+    expect(existsSync(join(root, '..', 'evil.txt'))).toBe(false);
+  });
+  it('rejects drive-letter absolute paths', async () => {
+    const root = tmpDir();
+    const buf = await makeZip({ 'my-skill/SKILL.md': '---\nname: my-skill\ndescription: d\n---\n', 'C:/evil.txt': 'x' });
+    await expect(installZip({ zipBuffer: buf, baseDir: root })).rejects.toThrow(/path/i);
+  });
+  it('rejects when a single entry exceeds maxTotalBytes (streaming budget)', async () => {
+    const root = tmpDir();
+    const big = 'x'.repeat(1024 * 1024); // ~1 MB, deflates to a few KB
+    const buf = await makeZip({ 'my-skill/SKILL.md': '---\nname: my-skill\ndescription: d\n---\n', 'my-skill/big.txt': big });
+    await expect(installZip({ zipBuffer: buf, baseDir: root, maxTotalBytes: 50 * 1024 })).rejects.toThrow(/size/i);
+    expect(existsSync(join(root, 'my-skill'))).toBe(false);
+  });
+  it('rejects more files than maxFiles', async () => {
+    const root = tmpDir();
+    const entries: Record<string, string> = { 'my-skill/SKILL.md': '---\nname: my-skill\ndescription: d\n---\n' };
+    for (let i = 0; i < 5; i++) entries[`my-skill/f${i}.md`] = 'x';
+    const buf = await makeZip(entries);
+    await expect(installZip({ zipBuffer: buf, baseDir: root, maxFiles: 3 })).rejects.toThrow(/files/i);
+    expect(existsSync(join(root, 'my-skill'))).toBe(false);
+  });
+  it('rejects multiple top-level directories', async () => {
+    const root = tmpDir();
+    const buf = await makeZip({ 'a/SKILL.md': '---\nname: a\ndescription: d\n---\n', 'b/extra.md': 'x' });
+    await expect(installZip({ zipBuffer: buf, baseDir: root })).rejects.toThrow(/layout/i);
+  });
+  it('rejects frontmatter name that differs from the directory name', async () => {
+    const root = tmpDir();
+    const buf = await makeZip({ 'real-name/SKILL.md': '---\nname: other-name\ndescription: d\n---\n' });
+    await expect(installZip({ zipBuffer: buf, baseDir: root })).rejects.toThrow(/name/i);
+  });
+  it('rejects a package whose SKILL.md has no description', async () => {
+    const root = tmpDir();
+    const buf = await makeZip({ 'my-skill/SKILL.md': '---\nname: my-skill\n---\n' });
+    await expect(installZip({ zipBuffer: buf, baseDir: root })).rejects.toThrow(ZipInstallError);
+  });
+  it('skips directory-marker entries while preserving structure', async () => {
+    const root = tmpDir();
+    const buf = await makeZip({
+      'my-skill/': '',
+      'my-skill/SKILL.md': '---\nname: my-skill\ndescription: d\n---\n',
+      'my-skill/refs/': '',
+      'my-skill/refs/a.md': 'x',
+    });
+    const res = await installZip({ zipBuffer: buf, baseDir: root });
+    expect(res.name).toBe('my-skill');
+    expect(existsSync(join(root, 'my-skill', 'SKILL.md'))).toBe(true);
+    expect(readFileSync(join(root, 'my-skill', 'refs', 'a.md'), 'utf8')).toBe('x');
+    const meta = await parseZipMetadata(buf);
+    expect(meta.fileCount).toBe(2); // dir markers are not counted
+  });
+  it('parseZipMetadata passes whenToUse through', async () => {
+    const buf = await makeZip({ 'my-skill/SKILL.md': '---\nname: my-skill\ndescription: d\nwhen-to-use: when needed\n---\n' });
+    const meta = await parseZipMetadata(buf);
+    expect(meta.whenToUse).toBe('when needed');
+  });
+});
