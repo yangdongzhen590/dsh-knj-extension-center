@@ -54,4 +54,22 @@ describe('collectSkills', () => {
     const { skills } = await collectSkills({ cwd: tmpDir(), dshHome: dsh, registry });
     expect(skills.some(s => s.name === 'Bad Name')).toBe(false);
   });
+  it('skips dot-prefixed entries so trashed skills do not resurrect', async () => {
+    const dsh = tmpDir();
+    // Task 5 trash layout: .trash/<name>-<ts>/SKILL.md keeps a valid frontmatter name.
+    mkdirSync(join(dsh, 'skills', '.trash', 'foo-123'), { recursive: true });
+    writeFileSync(join(dsh, 'skills', '.trash', 'foo-123', 'SKILL.md'), '---\nname: foo\ndescription: trashed\n---\n');
+    // A dot-prefixed top-level dir with a valid SKILL.md must also be skipped.
+    mkdirSync(join(dsh, 'skills', '.hidden'), { recursive: true });
+    writeFileSync(join(dsh, 'skills', '.hidden', 'SKILL.md'), '---\nname: hidden\ndescription: h\n---\n');
+    // Control: a normal skill is still collected.
+    mkdirSync(join(dsh, 'skills', 'foo'), { recursive: true });
+    writeFileSync(join(dsh, 'skills', 'foo', 'SKILL.md'), '---\nname: foo\ndescription: live\n---\n');
+    const { skills } = await collectSkills({ cwd: tmpDir(), dshHome: dsh, registry });
+    expect(skills.some(s => s.name === 'hidden')).toBe(false);
+    const foo = skills.find(s => s.name === 'foo');
+    expect(foo).toBeDefined();
+    expect(foo!.description).toBe('live');
+    expect(foo!.path).toBe(join(dsh, 'skills', 'foo', 'SKILL.md'));
+  });
 });

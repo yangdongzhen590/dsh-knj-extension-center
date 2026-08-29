@@ -105,6 +105,8 @@ async function scanSkillRoot(root: string, into: Map<string, MergeEntry>): Promi
     return; // missing or unreadable root: nothing to collect
   }
   for (const ent of entries) {
+    // Skip hidden entries (.trash, .git, dotfiles): never scan or recurse into them.
+    if (ent.name.startsWith('.')) continue;
     const full = join(root, ent.name);
     let isDir = ent.isDirectory();
     let isFile = ent.isFile();
