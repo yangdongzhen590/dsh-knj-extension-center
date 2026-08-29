@@ -141,6 +141,48 @@ describe('skill-center routes', () => {
     expect(existsSync(join(dsh, 'skills', 'demo', 'SKILL.md'))).toBe(true);
   });
 
+  it('uninstall of a single-file skill stays recoverable through trash', async () => {
+    const dsh = tmpDir();
+    const file = join(dsh, 'skills', 'demo.md');
+    mkdirSync(join(dsh, 'skills'), { recursive: true });
+    writeFileSync(file, '---\nname: demo\ndescription: demo skill\n---\n# Demo\nbody text');
+    const handlers: Route[] = [];
+    const routes = makeRoutes(makeCtx(handlers) as any, makeDeps(dsh) as any);
+    const uninstall = routes.find(r => r.path === ROUTES.uninstall)!.handler;
+    const res = await request(uninstall, 'POST', ROUTES.uninstall, { name: 'demo', path: file });
+    expect(res.status).toBe(200);
+    expect(existsSync(file)).toBe(false);
+    const list = routes.find(r => r.path === ROUTES.trashList)!.handler;
+    const trash = await request(list, 'GET', ROUTES.trashList);
+    expect(trash.status).toBe(200);
+    const item = trash.json.items.find((i: any) => i.name === 'demo');
+    expect(item).toBeTruthy();
+    const restore = routes.find(r => r.path === ROUTES.trashRestore)!.handler;
+    const restored = await request(restore, 'POST', ROUTES.trashRestore, { trashPath: item.trashPath });
+    expect(restored.status).toBe(200);
+    expect(readFileSync(file, 'utf8')).toBe('---\nname: demo\ndescription: demo skill\n---\n# Demo\nbody text');
+  });
+
+  it('trash restore returns 409 when the original path is occupied', async () => {
+    const dsh = tmpDir();
+    const file = join(dsh, 'skills', 'demo.md');
+    mkdirSync(join(dsh, 'skills'), { recursive: true });
+    writeFileSync(file, '---\nname: demo\ndescription: demo skill\n---\nold');
+    const handlers: Route[] = [];
+    const routes = makeRoutes(makeCtx(handlers) as any, makeDeps(dsh) as any);
+    const uninstall = routes.find(r => r.path === ROUTES.uninstall)!.handler;
+    const res = await request(uninstall, 'POST', ROUTES.uninstall, { name: 'demo', path: file });
+    expect(res.status).toBe(200);
+    const list = routes.find(r => r.path === ROUTES.trashList)!.handler;
+    const trash = await request(list, 'GET', ROUTES.trashList);
+    const item = trash.json.items.find((i: any) => i.name === 'demo');
+    // 原位被新技能占据
+    writeFileSync(file, '---\nname: demo\ndescription: newer\n---\nnew');
+    const restore = routes.find(r => r.path === ROUTES.trashRestore)!.handler;
+    const occupied = await request(restore, 'POST', ROUTES.trashRestore, { trashPath: item.trashPath });
+    expect(occupied.status).toBe(409);
+  });
+
   it('install rejects invalid zip with 400 and leaves no files', async () => {
     const dsh = tmpDir();
     mkdirSync(join(dsh, 'skills'));

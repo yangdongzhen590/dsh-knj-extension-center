@@ -68,10 +68,12 @@ export async function trashSkillDir(skillDir: string): Promise<string> {
 
 /**
  * List every recoverable trash entry under `<skillsRoot>/.trash`.
- * New format: directories `<name>-<ts>/` containing SKILL.md (name derived
- * from the directory name, originalPath back at the skills root). Legacy
- * format: single files `<ts>-SKILL.md` (name parsed from frontmatter,
- * originalPath unknown). A missing .trash yields an empty list.
+ * New directory format: `<name>-<ts>/` containing SKILL.md (name derived from
+ * the directory name, originalPath back at the skills root). New single-file
+ * format: `<name>.md-<ts>` (whole-file skills trashed by uninstall; the .md
+ * extension is kept on originalPath). Legacy format: single files
+ * `<ts>-SKILL.md` (name parsed from frontmatter, originalPath unknown). A
+ * missing .trash yields an empty list.
  */
 export async function listTrash(skillsRoot: string): Promise<TrashItem[]> {
   const trashRoot = join(skillsRoot, '.trash');
@@ -97,16 +99,31 @@ export async function listTrash(skillsRoot: string): Promise<TrashItem[]> {
         });
       }
     } else if (ent.isFile()) {
-      const m = /^(\d+)-SKILL\.md$/.exec(ent.name);
-      if (m) {
+      const legacy = /^(\d+)-SKILL\.md$/.exec(ent.name);
+      if (legacy) {
         const content = await readMaybe(full);
         const fm = parseFrontmatter(content ?? '');
         items.push({
           name: fm.name ?? ent.name,
           trashPath: full,
           originalPath: '', // legacy original location is unknown
-          deletedAt: m[1],
+          deletedAt: legacy[1],
           legacy: true,
+        });
+        continue;
+      }
+      // New single-file format `<name>.md-<ts>`: the file name minus the
+      // `-<ts>` suffix keeps the .md, so originalPath points back at the
+      // whole-file skill it came from.
+      const single = /^(.*\.md)-(\d+)$/.exec(ent.name);
+      if (single) {
+        const fileName = single[1];
+        items.push({
+          name: fileName.replace(/\.md$/, ''),
+          trashPath: full,
+          originalPath: join(skillsRoot, fileName),
+          deletedAt: single[2],
+          legacy: false,
         });
       }
     }

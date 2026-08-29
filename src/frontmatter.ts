@@ -59,14 +59,28 @@ interface FrontmatterMatch {
   eol: string;
 }
 
+/** Frontmatter block matcher shared by the parser and the raw splitter. */
+const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+
 function matchFrontmatter(content: string): FrontmatterMatch | null {
-  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(content);
+  const m = FRONTMATTER_RE.exec(content);
   if (!m) return null;
   return {
     body: m[1],
     rest: content.slice(m[0].length),
     eol: content.includes('\r\n') ? '\r\n' : '\n',
   };
+}
+
+/**
+ * Split content into the raw frontmatter block (`---` delimiters included)
+ * and the verbatim body that follows; null when there is no frontmatter.
+ * Shares the FRONTMATTER_RE matcher with parseFrontmatter.
+ */
+export function splitFrontmatter(content: string): { frontmatter: string; body: string } | null {
+  const m = FRONTMATTER_RE.exec(content);
+  if (m === null) return null;
+  return { frontmatter: m[0].replace(/\r?\n$/, ''), body: content.slice(m[0].length) };
 }
 
 /** Parse a SKILL.md frontmatter block into typed fields. Unknown keys are ignored. */

@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 import { collectSkills, type SkillEntry, type SkillLevel, type SkillRegistry } from './collect';
 import { installZip, parseZipMetadata, ZipInstallError } from './zip-install';
 import { listTrash, purgeTrashItem, restoreTrashItem, trashSkillDir, type TrashItem } from './trash';
-import { setFrontmatterField } from './frontmatter';
+import { setFrontmatterField, splitFrontmatter } from './frontmatter';
 import { isLoopbackRequest } from './loopback';
 import { readJsonBody, writeJson } from './http';
 
@@ -374,8 +374,12 @@ export function makeRoutes(ctx: Context, deps: SkillCenterRoutesDeps): Route[] {
             return;
           }
           const content = readFileSync(skill.path, 'utf8');
-          const { frontmatter, body } = splitFrontmatter(content);
-          writeJson(res, 200, { name, frontmatter, body });
+          const split = splitFrontmatter(content);
+          writeJson(res, 200, {
+            name,
+            frontmatter: split?.frontmatter ?? '',
+            body: split?.body ?? content,
+          });
         } catch (error) {
           logger.warn(error);
           writeJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
@@ -397,15 +401,4 @@ export function makeRoutes(ctx: Context, deps: SkillCenterRoutesDeps): Route[] {
       },
     },
   ];
-}
-
-/**
- * Split a SKILL.md into the raw frontmatter block (delimiters included) and
- * the verbatim body that follows. A file without a frontmatter block yields
- * an empty frontmatter and the whole content as the body.
- */
-function splitFrontmatter(content: string): { frontmatter: string; body: string } {
-  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(content);
-  if (m === null) return { frontmatter: '', body: content };
-  return { frontmatter: m[0].replace(/\r?\n$/, ''), body: content.slice(m[0].length) };
 }

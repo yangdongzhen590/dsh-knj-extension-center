@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, afterEach } from 'vitest';
@@ -32,6 +32,23 @@ describe('trash cycle', () => {
     expect(items).toHaveLength(1);
     expect(items[0].name).toBe('old');
     expect(items[0].legacy).toBe(true);
+  });
+  it('recognizes new single-file trash format (<name>.md-<ts>) and restores the file', async () => {
+    const root = tmpDir();
+    const file = join(root, 'demo.md');
+    writeFileSync(file, '---\nname: demo\ndescription: d\n---\nbody');
+    const trashPath = await trashSkillDir(file);
+    expect(existsSync(file)).toBe(false);
+    expect(trashPath).toMatch(/[\\/]\.trash[\\/]demo\.md-\d+$/);
+    const items = await listTrash(root);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      name: 'demo',
+      originalPath: join(root, 'demo.md'),
+      legacy: false,
+    });
+    await restoreTrashItem(items[0]);
+    expect(readFileSync(join(root, 'demo.md'), 'utf8')).toBe('---\nname: demo\ndescription: d\n---\nbody');
   });
   it('restore refuses when the original path is occupied', async () => {
     const root = tmpDir();
