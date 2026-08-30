@@ -15,6 +15,9 @@ export const zh = {
   'panel.searchPlaceholder': '搜索技能名称或描述…',
   'panel.trashButton': '回收站',
   'panel.installButton': '安装技能',
+  'panel.loading': '加载中…',
+  'panel.loadError': '技能列表加载失败',
+  'panel.retry': '重试',
   'panel.emptyNoSkills': '当前没有已加载的技能',
   'panel.emptyNoMatch': '没有匹配「{q}」的技能',
 
@@ -112,6 +115,9 @@ export const en: Record<SkillCenterKey, string> = {
   'panel.searchPlaceholder': 'Search skill name or description…',
   'panel.trashButton': 'Trash',
   'panel.installButton': 'Install skill',
+  'panel.loading': 'Loading…',
+  'panel.loadError': 'Failed to load skills',
+  'panel.retry': 'Retry',
   'panel.emptyNoSkills': 'No skills loaded',
   'panel.emptyNoMatch': 'No skills match "{q}"',
 
