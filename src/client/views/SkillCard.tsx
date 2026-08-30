@@ -2,16 +2,21 @@
 // description, invocation/linked badges and — only when the skill has a real
 // file path (user-dsh) — the model-invocable switch, copy-path and uninstall
 // buttons. Bundled / runtime skills carry no path, so their cards are
-// read-only (no switch / copy / uninstall). Clicking the card body opens the
-// detail view; foot controls stop propagation so they never open it.
+// read-only (no switch / copy / uninstall). Clicking the card body (mouse or
+// Enter/Space while focused) opens the detail view; foot controls stop
+// propagation so they never open it. A failed toggle / uninstall surfaces as
+// an inline error line (`error` prop, owned by the parent); a failed copy
+// shows a local inline error.
 
-import type { MouseEvent } from 'react';
+import { useState, type KeyboardEvent, type MouseEvent } from 'react';
 import type { SkillItem } from '../api';
 import { zh } from '../locales';
 import styles from './skill-center.module.css';
 
 export interface SkillCardProps {
   skill: SkillItem;
+  /** Inline error text for failed mutations, owned by the parent list. */
+  error?: string;
   onOpen: (skill: SkillItem) => void;
   onToggle: (skill: SkillItem, enabled: boolean) => void;
   onUninstall: (skill: SkillItem) => void;
@@ -70,14 +75,25 @@ function TrashIcon() {
   );
 }
 
-export function SkillCard({ skill, onOpen, onToggle, onUninstall }: SkillCardProps) {
+export function SkillCard({ skill, error, onOpen, onToggle, onUninstall }: SkillCardProps) {
   // Bundled / runtime skills have no filesystem path: nothing to toggle,
   // copy or uninstall.
   const hasPath = skill.path !== undefined;
+  const [copyError, setCopyError] = useState<string | null>(null);
 
   const invokableNames: string[] = [];
   if (skill.modelInvocable) invokableNames.push(zh['card.model']);
   if (skill.userInvocable) invokableNames.push(zh['card.user']);
+
+  const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    // Only the card itself activates (Enter/Space); a keydown that bubbles
+    // up from a nested control (switch / buttons) must not open the card.
+    if (event.target !== event.currentTarget) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault(); // Space would otherwise scroll the page
+      onOpen(skill);
+    }
+  };
 
   const handleToggle = (event: MouseEvent) => {
     event.stopPropagation();
@@ -87,9 +103,13 @@ export function SkillCard({ skill, onOpen, onToggle, onUninstall }: SkillCardPro
   const handleCopy = (event: MouseEvent) => {
     event.stopPropagation();
     if (skill.path === undefined) return;
-    // Best-effort copy; a missing/failing clipboard is silently ignored.
+    setCopyError(null);
+    // Best-effort copy; a missing clipboard is ignored, a failing one is
+    // surfaced as an inline error.
     if (typeof navigator.clipboard?.writeText === 'function') {
-      void navigator.clipboard.writeText(skill.path).catch(() => {});
+      void navigator.clipboard.writeText(skill.path).catch(() => {
+        setCopyError(zh['card.copyFail']);
+      });
     }
   };
 
@@ -99,11 +119,16 @@ export function SkillCard({ skill, onOpen, onToggle, onUninstall }: SkillCardPro
     if (window.confirm(message)) onUninstall(skill);
   };
 
+  const inlineError = error ?? copyError;
+
   return (
     <article
       className={styles.card}
       data-skill-name={skill.name}
+      role="button"
+      tabIndex={0}
       onClick={() => onOpen(skill)}
+      onKeyDown={handleCardKeyDown}
     >
       <div className={styles.cardTop}>
         <span className={styles.cardIcon}>
@@ -130,6 +155,7 @@ export function SkillCard({ skill, onOpen, onToggle, onUninstall }: SkillCardPro
             type="button"
             role="switch"
             aria-checked={skill.modelInvocable}
+            aria-label={zh['card.toggleTitle']}
             title={zh['card.toggleTitle']}
             className={styles.switch}
             onClick={handleToggle}
@@ -141,6 +167,7 @@ export function SkillCard({ skill, onOpen, onToggle, onUninstall }: SkillCardPro
           <button
             type="button"
             className={styles.iconBtn}
+            aria-label={zh['card.copyPathTitle']}
             title={zh['card.copyPathTitle']}
             onClick={handleCopy}
           >
@@ -149,11 +176,17 @@ export function SkillCard({ skill, onOpen, onToggle, onUninstall }: SkillCardPro
           <button
             type="button"
             className={styles.iconBtn}
+            aria-label={zh['card.uninstallTitle']}
             title={zh['card.uninstallTitle']}
             onClick={handleUninstall}
           >
             <TrashIcon />
           </button>
+        </div>
+      )}
+      {inlineError && (
+        <div className={styles.cardError} role="alert">
+          {inlineError}
         </div>
       )}
     </article>

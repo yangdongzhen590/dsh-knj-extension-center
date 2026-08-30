@@ -115,6 +115,15 @@ function makeApi(): ApiMock {
   };
 }
 
+/** Manually-resolvable promise for out-of-order response tests. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 // ── SkillCard ───────────────────────────────────────────────────────────────
 
 describe('SkillCard', () => {
@@ -209,6 +218,62 @@ describe('SkillCard', () => {
     confirmMock.mockReturnValue(false);
     click(uninstallBtn);
     expect(onUninstall).toHaveBeenCalledTimes(1);
+    act(() => root.unmount());
+  });
+
+  it('shows an inline error when copying to the clipboard fails', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
+      configurable: true,
+    });
+    const { container, root } = mount(
+      <SkillCard skill={USER_SKILL} onOpen={() => {}} onToggle={() => {}} onUninstall={() => {}} />,
+    );
+    click(container.querySelector(`button[title="${zh['card.copyPathTitle']}"]`)!);
+    await flush();
+    expect(container.textContent).toContain(zh['card.copyFail']);
+    act(() => root.unmount());
+    // @ts-expect-error cleanup: delete the stubbed clipboard
+    delete navigator.clipboard;
+  });
+
+  it('is keyboard-reachable: Enter/Space open the card, nested control keydown does not', () => {
+    const onOpen = vi.fn();
+    const { container, root } = mount(
+      <SkillCard skill={USER_SKILL} onOpen={onOpen} onToggle={() => {}} onUninstall={() => {}} />,
+    );
+    const card = container.querySelector('[data-skill-name]')!;
+    expect(card.getAttribute('role')).toBe('button');
+    expect(card.getAttribute('tabindex')).toBe('0');
+
+    act(() => {
+      card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    act(() => {
+      card.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    });
+    expect(onOpen).toHaveBeenCalledTimes(2);
+
+    // A keydown that originates inside a nested control must not open the card.
+    const sw = container.querySelector('button[role="switch"]')!;
+    act(() => {
+      sw.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    expect(onOpen).toHaveBeenCalledTimes(2);
+    act(() => root.unmount());
+  });
+
+  it('labels switch, copy and uninstall buttons with aria-label', () => {
+    const { container, root } = mount(
+      <SkillCard skill={USER_SKILL} onOpen={() => {}} onToggle={() => {}} onUninstall={() => {}} />,
+    );
+    const sw = container.querySelector('button[role="switch"]')!;
+    expect(sw.getAttribute('aria-label')).toBe(zh['card.toggleTitle']);
+    const copy = container.querySelector(`button[title="${zh['card.copyPathTitle']}"]`)!;
+    expect(copy.getAttribute('aria-label')).toBe(zh['card.copyPathTitle']);
+    const uninstall = container.querySelector(`button[title="${zh['card.uninstallTitle']}"]`)!;
+    expect(uninstall.getAttribute('aria-label')).toBe(zh['card.uninstallTitle']);
     act(() => root.unmount());
   });
 });
@@ -406,6 +471,132 @@ describe('ListView', () => {
     expect(container.textContent).toContain(USER_SKILL.name);
     expect(warn).not.toHaveBeenCalled(); // no stray console noise on the happy path
     warn.mockRestore();
+    act(() => root.unmount());
+  });
+
+  it('shows an inline error when the toggle fails and recovers on the next success', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const api = makeApi();
+    api.list.mockResolvedValue(twoGroupPayload());
+    api.setEnabled.mockRejectedValueOnce(new Error('boom')).mockResolvedValue(undefined);
+    const { container, root, props } = renderList(api);
+    await flush();
+
+    const sw = container.querySelector('button[role="switch"]')!;
+    click(sw);
+    await flush();
+    expect(api.setEnabled).toHaveBeenCalledWith(USER_SKILL.name, USER_SKILL.path, false);
+    expect(container.textContent).toContain(zh['toggle.fail'].replace('{error}', 'boom'));
+    expect(sw.getAttribute('aria-checked')).toBe('true'); // unchanged on failure
+    expect(props.onChanged).not.toHaveBeenCalled();
+
+    // Retry succeeds: error clears and the switch flips.
+    click(sw);
+    await flush();
+    expect(container.textContent).not.toContain(zh['toggle.fail'].replace('{error}', 'boom'));
+    expect(sw.getAttribute('aria-checked')).toBe('false');
+    expect(props.onChanged).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+    act(() => root.unmount());
+  });
+
+  it('shows an inline error when uninstall fails and keeps the card', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    const api = makeApi();
+    api.list.mockResolvedValue(twoGroupPayload());
+    api.uninstall.mockRejectedValueOnce(new Error('locked'));
+    const { container, root } = renderList(api);
+    await flush();
+
+    click(container.querySelector(`button[title="${zh['card.uninstallTitle']}"]`)!);
+    await flush();
+    expect(api.uninstall).toHaveBeenCalledWith(USER_SKILL.name, USER_SKILL.path);
+    expect(container.textContent).toContain(zh['uninstall.fail'].replace('{error}', 'locked'));
+    expect(container.querySelector('[data-skill-name="dsh-doublecheck"]')).not.toBeNull();
+    warn.mockRestore();
+    act(() => root.unmount());
+  });
+
+  it('skips search while IME-composing and queries once after compositionend', async () => {
+    vi.useFakeTimers();
+    const api = makeApi();
+    api.list.mockResolvedValue(twoGroupPayload());
+    const { container, root } = renderList(api);
+    await flush();
+    const input = container.querySelector('input')!;
+
+    act(() => {
+      input.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+    });
+    typeInput(input, 'nǐ'); // intermediate composition value
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(api.list).toHaveBeenCalledTimes(1); // no search fired while composing
+
+    act(() => {
+      input.dispatchEvent(new Event('compositionend', { bubbles: true }));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    await flush();
+    expect(api.list).toHaveBeenCalledTimes(2);
+    expect(api.list).toHaveBeenLastCalledWith({ q: 'nǐ' });
+    act(() => root.unmount());
+  });
+
+  it('drops a stale list response that resolves after a newer search', async () => {
+    vi.useFakeTimers();
+    const api = makeApi();
+    const first = deferred<ListPayload>();
+    const second = deferred<ListPayload>();
+    api.list.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { container, root } = renderList(api);
+    await flush();
+    expect(container.textContent).toContain(zh['panel.loading']); // initial request still pending
+
+    typeInput(container.querySelector('input')!, 'git');
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+
+    // The newer request resolves first and wins.
+    await act(async () => {
+      second.resolve({ cwd: '/ws', complete: true, groups: [group('user-dsh', 'x', 'h', [USER_SKILL])] });
+    });
+    await flush();
+    expect(container.textContent).toContain(USER_SKILL.name);
+
+    // The stale initial request resolves later and must be ignored.
+    await act(async () => {
+      first.resolve({ cwd: '/ws', complete: true, groups: [group('bundled', 'x', 'h', [BUNDLED_SKILL])] });
+    });
+    await flush();
+    expect(container.textContent).not.toContain(BUNDLED_SKILL.name);
+    expect(container.textContent).toContain(USER_SKILL.name);
+    act(() => root.unmount());
+  });
+
+  it('keeps region collapse state across re-fetches', async () => {
+    vi.useFakeTimers();
+    const api = makeApi();
+    api.list.mockResolvedValue(twoGroupPayload());
+    const { container, root } = renderList(api);
+    await flush();
+
+    const header = () => container.querySelector('[data-group-key="user-dsh"] button')!;
+    click(header());
+    expect(header().getAttribute('aria-expanded')).toBe('false');
+
+    typeInput(container.querySelector('input')!, 'git');
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    await flush();
+    expect(api.list).toHaveBeenCalledTimes(2);
+    expect(header().getAttribute('aria-expanded')).toBe('false');
     act(() => root.unmount());
   });
 });

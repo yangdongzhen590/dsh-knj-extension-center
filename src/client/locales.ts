@@ -37,6 +37,7 @@ export const zh = {
   'card.toggleTitle': '模型可调用开关（改写 disable-model-invocation）',
   'card.copyPathTitle': '复制路径',
   'card.uninstallTitle': '卸载（移入回收站）',
+  'card.copyFail': '复制路径失败',
 
   // Detail view
   'detail.backToList': '返回列表',
@@ -50,10 +51,12 @@ export const zh = {
   // Enable/disable toggle feedback
   'toggle.enabledToast': '已启用：{name} 模型可调用',
   'toggle.disabledToast': '已禁用：{name} 模型不可调用',
+  'toggle.fail': '切换失败：{error}',
 
   // Uninstall
   'uninstall.confirm': '删除技能「{name}」？将移入回收站。',
   'uninstall.doneToast': '已移入回收站：{name}',
+  'uninstall.fail': '卸载失败：{error}',
 
   // Trash view
   'trash.back': '返回',
@@ -135,6 +138,7 @@ export const en: Record<SkillCenterKey, string> = {
   'card.toggleTitle': 'Model-invocable switch (writes disable-model-invocation)',
   'card.copyPathTitle': 'Copy path',
   'card.uninstallTitle': 'Uninstall (move to trash)',
+  'card.copyFail': 'Failed to copy path',
 
   'detail.backToList': 'Back to list',
   'detail.copyPath': 'Copy path',
@@ -146,9 +150,11 @@ export const en: Record<SkillCenterKey, string> = {
 
   'toggle.enabledToast': 'Enabled: {name} is model-invocable',
   'toggle.disabledToast': 'Disabled: {name} is not model-invocable',
+  'toggle.fail': 'Toggle failed: {error}',
 
   'uninstall.confirm': 'Uninstall "{name}"? It will move to the trash.',
   'uninstall.doneToast': 'Moved to trash: {name}',
+  'uninstall.fail': 'Uninstall failed: {error}',
 
   'trash.back': 'Back',
   'trash.title': 'Trash',
