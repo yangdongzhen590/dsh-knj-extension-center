@@ -360,7 +360,9 @@ describe('ListView', () => {
     await flush();
     const card = container.querySelector('[data-skill-name="dsh-doublecheck"]')!;
     click(card);
-    expect(props.onOpenDetail).toHaveBeenCalledWith('dsh-doublecheck');
+    // The controller receives the FULL merged list entry (the chrome for
+    // DetailView's `item` prop) — not just the name.
+    expect(props.onOpenDetail).toHaveBeenCalledWith(USER_SKILL);
     act(() => root.unmount());
   });
 

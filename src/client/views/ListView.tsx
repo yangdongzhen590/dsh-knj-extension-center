@@ -27,14 +27,21 @@ import styles from './skill-center.module.css';
 
 export interface ListViewProps {
   api: SkillApi;
-  /** Open the detail view for a skill name (view controller callback). */
-  onOpenDetail: (name: string) => void;
+  /**
+   * Open the detail view for a skill. The controller receives the FULL merged
+   * list entry (not just the name) so it can pass it on as DetailView's
+   * `item` — the chrome (path line / badges / manage actions) the host detail
+   * route does not send. The controller itself declines pathless skills.
+   */
+  onOpenDetail: (item: SkillItem) => void;
   /** Switch to the install flow. */
   onStartInstall: () => void;
   /** Switch to the trash view. */
   onOpenTrash: () => void;
   /** A mutation succeeded (toggle / uninstall) — data changed underneath. */
   onChanged: () => void;
+  /** Top-level close path (closes the whole panel); optional. */
+  onClose?: () => void;
 }
 
 const SEARCH_DEBOUNCE_MS = 200;
@@ -91,7 +98,24 @@ function SearchIcon() {
   );
 }
 
-export function ListView({ api, onOpenDetail, onStartInstall, onOpenTrash, onChanged }: ListViewProps) {
+/** Close icon (top-level close path of the panel header). */
+function CloseIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m4 4 8 8M12 4l-8 8" />
+    </svg>
+  );
+}
+
+export function ListView({ api, onOpenDetail, onStartInstall, onOpenTrash, onChanged, onClose }: ListViewProps) {
   const [query, setQuery] = useState('');
   const [groups, setGroups] = useState<Group[]>([]);
   const [status, setStatus] = useState<'loading' | 'error' | 'ready'>('loading');
@@ -220,6 +244,17 @@ export function ListView({ api, onOpenDetail, onStartInstall, onOpenTrash, onCha
           <DownloadIcon />
           {zh['panel.installButton']}
         </button>
+        {onClose !== undefined && (
+          <button
+            type="button"
+            className={styles.btn}
+            aria-label={zh['panel.close']}
+            title={zh['panel.close']}
+            onClick={onClose}
+          >
+            <CloseIcon />
+          </button>
+        )}
       </header>
 
       <div className={styles.toolbar}>
@@ -265,7 +300,7 @@ export function ListView({ api, onOpenDetail, onStartInstall, onOpenTrash, onCha
                     key={skill.name}
                     skill={skill}
                     error={errors[skill.name]}
-                    onOpen={(s) => onOpenDetail(s.name)}
+                    onOpen={(s) => onOpenDetail(s)}
                     onToggle={handleToggle}
                     onUninstall={handleUninstall}
                   />

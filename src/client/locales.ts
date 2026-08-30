@@ -20,6 +20,7 @@ export const zh = {
   'panel.retry': '重试',
   'panel.emptyNoSkills': '当前没有已加载的技能',
   'panel.emptyNoMatch': '没有匹配「{q}」的技能',
+  'panel.close': '关闭面板',
 
   // Groups (titles mirror the host group keys bundled / user-dsh / runtime)
   'group.bundled.title': '系统内置',
@@ -138,6 +139,7 @@ export const en: Record<SkillCenterKey, string> = {
   'panel.retry': 'Retry',
   'panel.emptyNoSkills': 'No skills loaded',
   'panel.emptyNoMatch': 'No skills match "{q}"',
+  'panel.close': 'Close panel',
 
   'group.bundled.title': 'System bundled',
   'group.bundled.hint': 'Global skills shipped with DSH and its plugins',
