@@ -5,6 +5,7 @@
  * radii, paddings, gaps) mirrors the design doc verbatim. */
 
 .root {
+  position: relative; /* stacking context for the conflict dialog overlay */
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -605,6 +606,297 @@
   height: 36px;
 }
 
+/* ===== install flow (Task 13): steps / dropzone / confirm / success / dialog ===== */
+.installBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 24px 32px;
+}
+.steps {
+  display: flex;
+  align-items: center;
+  margin-bottom: 22px;
+  max-width: 620px;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stepDot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.stepDone .stepDot {
+  background: var(--dsw-alias-state-success-primary);
+  border-color: var(--dsw-alias-state-success-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+}
+.stepCurrent .stepDot {
+  background: var(--dsw-alias-button-primary-fill);
+  border-color: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-inverted);
+}
+.stepLabel {
+  font-size: 12.5px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}
+.stepCurrent .stepLabel {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+.stepLine {
+  flex: 1;
+  height: 1px;
+  min-width: 40px;
+  margin: 0 12px;
+  background: var(--dsw-alias-border-l2);
+}
+.dropzoneWrap {
+  max-width: 620px;
+}
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 44px 20px;
+  box-sizing: border-box;
+  border: 1.5px dashed var(--dsw-alias-label-dimmed);
+  border-radius: 10px;
+  text-align: center;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.dropzone:hover,
+.dropzoneDrag {
+  border-color: var(--dsw-alias-button-primary-fill);
+  background: color-mix(in srgb, var(--dsw-alias-button-primary-fill) 6%, transparent);
+}
+.dropzone:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+.dropzoneIcon {
+  width: 34px;
+  height: 34px;
+  margin-bottom: 10px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.dropzoneIcon svg {
+  width: 34px;
+  height: 34px;
+}
+.dropzoneMain {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+.dropzoneSub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.dropzoneFmt {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 2px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+.fileInput {
+  display: none;
+}
+.confirmCard {
+  max-width: 620px;
+  padding: 16px;
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-base);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.confirmHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.confirmTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--dsw-alias-label-primary);
+  word-break: break-all;
+}
+.field {
+  margin-bottom: 12px;
+}
+.fieldLabel {
+  margin-bottom: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-tertiary);
+}
+.fieldVal {
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+  word-break: break-word;
+}
+.mono {
+  font-family: var(--mono, ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace);
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  word-break: break-all;
+}
+.fileList {
+  margin: 0;
+  padding: 0;
+  font-family: var(--mono, ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace);
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+.fileList li {
+  list-style: none;
+  padding: 1px 0;
+  white-space: pre;
+}
+.confirmActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.successBox {
+  max-width: 620px;
+  padding: 30px 20px;
+  box-sizing: border-box;
+  text-align: center;
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-success-primary) 35%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 8%, transparent);
+}
+.successIcon {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 10px;
+  color: var(--dsw-alias-state-success-primary);
+}
+.successIcon svg {
+  width: 36px;
+  height: 36px;
+}
+.successTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--dsw-alias-state-success-primary);
+}
+.successPath {
+  margin-top: 6px;
+  font-family: var(--mono, ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace);
+  font-size: 12.5px;
+  color: var(--dsw-alias-label-secondary);
+  word-break: break-all;
+}
+.successActions {
+  display: flex;
+  justify-content: flex-end;
+  max-width: 620px;
+  margin-top: 14px;
+}
+
+/* ===== conflict dialog overlay (view-level, not window.confirm) ===== */
+.dialogMask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 17, 21, 0.32);
+  z-index: 50;
+}
+.dialog {
+  width: 420px;
+  max-width: calc(100% - 32px);
+  box-sizing: border-box;
+  padding: 18px;
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-base);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+.dialogTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--dsw-alias-label-primary);
+}
+.dialogTitleIcon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--dsw-alias-state-warn-primary);
+}
+.dialogTitleIcon svg {
+  width: 18px;
+  height: 18px;
+}
+.dialogBody {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--dsw-alias-label-secondary);
+}
+.dialogBodyText {
+  margin: 0;
+  line-height: 1.6;
+}
+.dialogBodyText + .dialogBodyText {
+  margin-top: 8px;
+}
+.dialogExisting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.dialogFieldLabel {
+  flex: none;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+.dialogMono {
+  margin-top: 4px;
+  font-family: var(--mono, ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace);
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  word-break: break-all;
+}
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .btn,
   .btnGhost,
@@ -614,7 +906,9 @@
   .chev,
   .switchTrack,
   .switchThumb,
-  .trashRow {
+  .trashRow,
+  .dropzone,
+  .stepDot {
     transition: none;
   }
 }

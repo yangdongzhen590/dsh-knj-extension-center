@@ -98,6 +98,15 @@ export const zh = {
   'install.finish': '完成',
   'install.doneToast': '安装完成：{name}',
 
+  // Install flow — local zip preview parse errors (step 1)
+  'install.errorNotZip': '无法读取该文件：不是有效的 zip 或文件已损坏',
+  'install.errorLayout': 'zip 需包含单一技能目录（<name>/SKILL.md）',
+  'install.errorNoSkillMd': 'zip 内缺少 {name}/SKILL.md',
+  'install.errorInvalidName': '技能名不合法：{name}（需小写 kebab-case，仅小写字母、数字、连字符）',
+  'install.errorNoDescription': 'SKILL.md 缺少 description 字段',
+  'install.errorTooLarge': '文件超过 8MB 上限',
+  'install.errorParse': '无法解析该 zip：{error}',
+
   // Conflict dialog
   'conflict.title': '技能名已存在',
   'conflict.bodyPrefix': '即将安装的 {name} 与已安装技能重名。',
@@ -199,6 +208,14 @@ export const en: Record<SkillCenterKey, string> = {
   'install.successOldInTrash': 'Old version moved to trash',
   'install.finish': 'Finish',
   'install.doneToast': 'Installed: {name}',
+
+  'install.errorNotZip': 'Cannot read this file: not a valid zip or the file is corrupted',
+  'install.errorLayout': 'A zip must contain a single skill directory (<name>/SKILL.md)',
+  'install.errorNoSkillMd': 'Missing {name}/SKILL.md in the zip',
+  'install.errorInvalidName': 'Invalid skill name: {name} (must be kebab-case: lowercase letters, digits, hyphens)',
+  'install.errorNoDescription': 'SKILL.md has no description field',
+  'install.errorTooLarge': 'File exceeds the 8MB limit',
+  'install.errorParse': 'Cannot parse this zip: {error}',
 
   'conflict.title': 'Skill name already exists',
   'conflict.bodyPrefix': 'The skill {name} you are installing has the same name as an installed skill.',
