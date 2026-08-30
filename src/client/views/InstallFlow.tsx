@@ -15,7 +15,7 @@
 // present, frontmatter name matches the dir, non-empty description, 8MB cap.
 // Parse failures surface as a locale message under the dropzone (step 1 stays).
 
-import { useRef, useState, type ChangeEvent, type DragEvent } from 'react';
+import { useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from 'react';
 import JSZip from 'jszip';
 import type { InstallConflict, SkillApi } from '../api';
 import { zh } from '../locales';
@@ -54,14 +54,26 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 const MAX_ZIP_BYTES = 8 * 1024 * 1024; // matches the dropzone copy + host default
 
 /**
+ * Frontmatter block matcher — mirrors the host's matchFrontmatter exactly:
+ * only the `---`-fenced block at the START of the file participates and
+ * scanning stops at the closing fence. Body lines like `name:` /
+ * `description:` at column 0 must not leak into the preview (the host ignores
+ * them; a fence-less SKILL.md yields `{}` and must be rejected too).
+ */
+const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+
+/**
  * Minimal SKILL.md frontmatter reader (name / description / when-to-use).
  * Mirrors the host parser for the fields the install preview needs: simple
- * `key: value` lines plus `|` / `>` block scalars, quotes stripped.
+ * `key: value` lines plus `|` / `>` block scalars, quotes stripped. Only the
+ * fenced block participates; no fence → `{}` (host behavior).
  */
 function parseFrontmatterLite(content: string): { name?: string; description?: string; whenToUse?: string } {
   const fm: { name?: string; description?: string; whenToUse?: string } = {};
+  const m = FRONTMATTER_RE.exec(content);
+  if (!m) return fm;
   const rec = fm as Record<string, string | undefined>;
-  const lines = content.split(/\r?\n/);
+  const lines = m[1].split(/\r?\n/);
   let i = 0;
   for (; i < lines.length; i++) {
     const line = lines[i];
@@ -339,6 +351,14 @@ export function InstallFlow({ api, onDone, onCancel }: InstallFlowProps) {
     if (f !== undefined) void handleFile(f);
   };
 
+  /** Keyboard activation for the dropzone button (Enter / Space). */
+  const handleDropzoneKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault(); // Space must not scroll the panel
+      inputRef.current?.click();
+    }
+  };
+
   /** Back to step 1, dropping the current preview (re-selection). */
   const handleReselect = () => {
     parseToken.current++;
@@ -438,7 +458,9 @@ export function InstallFlow({ api, onDone, onCancel }: InstallFlowProps) {
           <div className={styles.dropzoneWrap}>
             <div
               className={`${styles.dropzone} ${dragging ? styles.dropzoneDrag : ''}`}
+              data-dropzone=""
               onClick={() => inputRef.current?.click()}
+              onKeyDown={handleDropzoneKeyDown}
               onDragOver={(e) => {
                 e.preventDefault();
                 setDragging(true);

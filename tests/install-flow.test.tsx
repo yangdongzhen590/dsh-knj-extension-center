@@ -371,4 +371,100 @@ describe('InstallFlow', () => {
     expect(props.onCancel).toHaveBeenCalledTimes(1);
     act(() => root.unmount());
   });
+
+  // ── frontmatter fence scoping (Task 13 fix) ──────────────────────────────
+
+  it('a body `name:` line at column 0 does not falsely reject a valid package', async () => {
+    const api = makeApi();
+    const { container, root } = renderFlow(api);
+    const md =
+      '---\nname: my-skill\ndescription: 真正的描述\n---\nbody text\nname: other-skill\n';
+    selectFile(container, await zipFile({ 'my-skill/SKILL.md': md }));
+    await flush();
+    expect(container.querySelector('[data-step="2"]')?.getAttribute('aria-current')).toBe('step');
+    expect(container.textContent).toContain('my-skill');
+    expect(container.textContent).toContain('真正的描述');
+    expect(api.install).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it('a body `name:` line cannot rescue a frontmatter name mismatch', async () => {
+    const api = makeApi();
+    const { container, root } = renderFlow(api);
+    const md = '---\nname: other-name\ndescription: d\n---\nname: my-skill\n';
+    selectFile(container, await zipFile({ 'my-skill/SKILL.md': md }));
+    await flush();
+    expect(container.textContent).toContain(zh['install.errorInvalidName'].replace('{name}', 'other-name'));
+    expect(api.install).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it('rejects a SKILL.md with no frontmatter fences (the host would reject it too)', async () => {
+    const api = makeApi();
+    const { container, root } = renderFlow(api);
+    // no `---` fence: host parseFrontmatter returns {} → name mismatch → reject
+    selectFile(container, await zipFile({ 'my-skill/SKILL.md': 'name: my-skill\ndescription: d\n' }));
+    await flush();
+    expect(container.textContent).toContain(zh['install.errorInvalidName'].replace('{name}', ''));
+    expect(api.install).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it('a body `description:` line does not override the confirm card description', async () => {
+    const api = makeApi();
+    const { container, root } = renderFlow(api);
+    const md = '---\nname: my-skill\ndescription: 真正的描述\n---\nbody\ndescription: 假的描述\n';
+    selectFile(container, await zipFile({ 'my-skill/SKILL.md': md }));
+    await flush();
+    expect(container.textContent).toContain('真正的描述');
+    expect(container.textContent).not.toContain('假的描述');
+    act(() => root.unmount());
+  });
+
+  it('renders a block-scalar (|) description on the confirm card', async () => {
+    const api = makeApi();
+    const { container, root } = renderFlow(api);
+    const md = '---\nname: my-skill\ndescription: |\n  第一行描述\n  第二行描述\n---\nbody';
+    selectFile(container, await zipFile({ 'my-skill/SKILL.md': md }));
+    await flush();
+    expect(container.querySelector('[data-step="2"]')?.getAttribute('aria-current')).toBe('step');
+    expect(container.textContent).toContain('第一行描述');
+    expect(container.textContent).toContain('第二行描述');
+    act(() => root.unmount());
+  });
+
+  it('rejects a zip over the 8MB cap before uploading', async () => {
+    const api = makeApi();
+    const { container, root } = renderFlow(api);
+    const file = await zipFile(VALID_SKILL);
+    Object.defineProperty(file, 'size', { value: 8 * 1024 * 1024 + 1, configurable: true });
+    selectFile(container, file);
+    await flush();
+    expect(container.textContent).toContain(zh['install.errorTooLarge']);
+    expect(container.querySelector('[data-step="1"]')?.getAttribute('aria-current')).toBe('step');
+    expect(api.install).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it('opens the file picker from the dropzone on Enter and Space', () => {
+    const api = makeApi();
+    const { container, root } = renderFlow(api);
+    // jsdom's input.click() dispatches a click event — observe it directly
+    // instead of spying on the method (cleaner under vitest's jsdom typing).
+    const input = container.querySelector('input[type="file"]')!;
+    const onClick = vi.fn();
+    input.addEventListener('click', onClick);
+    const dz = container.querySelector('[data-dropzone]')!;
+
+    act(() => {
+      dz.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    expect(onClick).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      dz.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    });
+    expect(onClick).toHaveBeenCalledTimes(2);
+    act(() => root.unmount());
+  });
 });

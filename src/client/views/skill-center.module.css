@@ -830,7 +830,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(15, 17, 21, 0.32);
+  /* The DSH shell's own overlay-scrim token (used by its mask layer) — keeps
+   * this module token-only; resolves in both light and dark themes. */
+  background: var(--dsw-alias-bg-mask-1);
   z-index: 50;
 }
 .dialog {
