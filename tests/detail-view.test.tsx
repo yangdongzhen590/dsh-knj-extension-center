@@ -1,14 +1,18 @@
 /** @vitest-environment jsdom */
 // Detail view (Task 11): DetailView + markdownLite. DetailView renders with
-// react-dom/client + act like list-view.test.tsx; `api.detail` is mocked per
-// test. markdownLite is a pure function: escape-first (XSS-safe) then apply
-// the supported markers (# heading, - list, `code`, **bold**, pre fences).
-// Vitest stubs CSS modules (css: false default), so assertions target roles,
-// data attributes and visible text, not hashed class names.
+// react-dom/client + act like list-view.test.tsx. The host detail route
+// returns only { name, frontmatter, body } (frontmatter raw fenced text, body
+// verbatim), so all UI chrome — path line, badges, actions — comes from the
+// optional `item` prop (the merged list entry the controller passes in); when
+// `item` is absent the view degrades to name + frontmatter + body. markdownLite
+// is a pure function: escape-first (XSS-safe) then apply the supported markers
+// (# heading, - list, `code`, **bold**, pre fences). Vitest stubs CSS modules
+// (css: false default), so assertions target roles, data attributes and
+// visible text, not hashed class names.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { DetailPayload, SkillApi } from '../src/client/api';
+import type { DetailPayload, SkillApi, SkillItem } from '../src/client/api';
 import { DetailView, type DetailViewProps } from '../src/client/views/DetailView';
 import { markdownLite } from '../src/client/views/markdown-lite';
 import { zh } from '../src/client/locales';
@@ -45,34 +49,53 @@ function click(el: Element): void {
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
-/** User skill detail (frontmatter arrives raw including the --- fences). */
-const USER_DETAIL: DetailPayload = {
+/** Merged list entry for a user skill (what the controller passes as `item`). */
+const USER_ITEM: SkillItem = {
   name: 'dsh-doublecheck',
   description: '工程纪律套件：需求盘问 → 规格记录',
   whenToUse: '需要交付物质量把关时',
+  provider: 'user-dsh',
   level: 'user-dsh',
   path: '~/.dsh/skills/dsh-doublecheck/SKILL.md',
   linked: false,
   modelInvocable: true,
   userInvocable: true,
+};
+
+/** Linked user skill: shows the 软链接 badge. */
+const LINKED_ITEM: SkillItem = { ...USER_ITEM, name: 'session-brain', linked: true, modelInvocable: false };
+
+/** Bundled entry: no file path → no switch / copy / uninstall actions. */
+const BUNDLED_ITEM: SkillItem = {
+  name: 'code-review',
+  description: '沿两个轴审查变更',
+  provider: 'bundled',
+  level: 'bundled',
+  path: undefined,
+  linked: false,
+  modelInvocable: true,
+  userInvocable: false,
+};
+
+/** Runtime entry: no file path → read-only. */
+const RUNTIME_ITEM: SkillItem = {
+  name: 'ux-scan',
+  description: 'UX 走查扫描',
+  provider: 'runtime',
+  level: 'runtime',
+  path: undefined,
+  linked: false,
+  modelInvocable: true,
+  userInvocable: true,
+};
+
+/** Host-only detail payload: { name, frontmatter, body } and nothing else. */
+const USER_DETAIL: DetailPayload = {
+  name: 'dsh-doublecheck',
   frontmatter: '---\nname: dsh-doublecheck\ndescription: 工程纪律套件\n---',
   body: '## 交付纪律\n\n- 测试先行（red → green）\n- `npm test` 通过\n- **交付前复查**',
 };
 
-/** Bundled skill: no file path → no switch / copy / uninstall actions. */
-const BUNDLED_DETAIL: DetailPayload = {
-  name: 'code-review',
-  level: 'bundled',
-  path: undefined,
-  modelInvocable: false,
-  userInvocable: false,
-  linked: false,
-  frontmatter: '---\nname: code-review\n---',
-  body: '# 审查变更',
-};
-
-/** Host-only payload: the detail route sends { name, frontmatter, body } and
- *  nothing else — every metadata field is undefined and must be null-checked. */
 const HOST_ONLY_DETAIL: DetailPayload = {
   name: 'demo',
   frontmatter: '---\nname: demo\n---',
@@ -102,6 +125,11 @@ function renderDetail(
   };
   const { container, root } = mount(<DetailView {...props} />);
   return { container, root, props };
+}
+
+/** True when the container shows a copy-path or uninstall button. */
+function hasAction(container: HTMLElement, label: string): boolean {
+  return [...container.querySelectorAll('button')].some((b) => b.textContent?.includes(label));
 }
 
 // ── markdownLite ────────────────────────────────────────────────────────────
@@ -164,10 +192,10 @@ describe('markdownLite', () => {
 // ── DetailView ──────────────────────────────────────────────────────────────
 
 describe('DetailView', () => {
-  it('loads on mount and renders name, badges, frontmatter and markdown body', async () => {
+  it('loads on mount and renders name, badges, path line, frontmatter and markdown body from the merged item', async () => {
     const api = makeApi();
     api.detail.mockResolvedValue(USER_DETAIL);
-    const { container, root } = renderDetail(api);
+    const { container, root } = renderDetail(api, { item: USER_ITEM });
     expect(api.detail).toHaveBeenCalledWith('dsh-doublecheck');
 
     // loading state before the promise settles
@@ -175,11 +203,12 @@ describe('DetailView', () => {
 
     await flush();
 
+    // name + invokable badge (模型 · 用户) + path line from item
     expect(container.textContent).toContain('dsh-doublecheck');
-    // invokable badge: 模型 · 用户
     expect(container.textContent).toContain(
       zh['card.invokable'].replace('{names}', `${zh['card.model']} · ${zh['card.user']}`),
     );
+    expect(container.textContent).toContain('~/.dsh/skills/dsh-doublecheck/SKILL.md');
     // frontmatter block renders the raw fenced text
     expect(container.textContent).toContain('---\nname: dsh-doublecheck');
     // markdown body: heading / list / code / bold
@@ -190,26 +219,34 @@ describe('DetailView', () => {
     act(() => root.unmount());
   });
 
-  it('shows the user-skill path line and renders actions (switch/copy/uninstall)', async () => {
+  it('renders actions (switch/copy/uninstall) when the merged item has a path', async () => {
     const api = makeApi();
     api.detail.mockResolvedValue(USER_DETAIL);
-    const { container, root } = renderDetail(api);
+    const { container, root } = renderDetail(api, { item: USER_ITEM });
     await flush();
-    expect(container.textContent).toContain('~/.dsh/skills/dsh-doublecheck/SKILL.md');
 
     const sw = container.querySelector('button[role="switch"]')!;
     expect(sw).not.toBeNull();
     expect(sw.getAttribute('aria-checked')).toBe('true');
     expect(container.querySelector(`button[title="${zh['card.toggleTitle']}"]`)).not.toBeNull();
-    expect([...container.querySelectorAll('button')].some((b) => b.textContent?.includes(zh['detail.copyPath']))).toBe(true);
-    expect([...container.querySelectorAll('button')].some((b) => b.textContent?.includes(zh['detail.uninstall']))).toBe(true);
+    expect(hasAction(container, zh['detail.copyPath'])).toBe(true);
+    expect(hasAction(container, zh['detail.uninstall'])).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it('renders the 软链接 badge when the merged item is linked', async () => {
+    const api = makeApi();
+    api.detail.mockResolvedValue({ ...USER_DETAIL, name: 'session-brain' });
+    const { container, root } = renderDetail(api, { name: 'session-brain', item: LINKED_ITEM });
+    await flush();
+    expect(container.textContent).toContain(zh['card.linked']);
     act(() => root.unmount());
   });
 
   it('calls onBack when the back button is clicked', async () => {
     const api = makeApi();
     api.detail.mockResolvedValue(USER_DETAIL);
-    const { container, root, props } = renderDetail(api);
+    const { container, root, props } = renderDetail(api, { item: USER_ITEM });
     await flush();
     const back = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes(zh['detail.backToList']))!;
     expect(back).toBeDefined();
@@ -218,16 +255,16 @@ describe('DetailView', () => {
     act(() => root.unmount());
   });
 
-  it('copies the path via navigator.clipboard', async () => {
+  it('copies the item path via navigator.clipboard', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     const api = makeApi();
     api.detail.mockResolvedValue(USER_DETAIL);
-    const { container, root } = renderDetail(api);
+    const { container, root } = renderDetail(api, { item: USER_ITEM });
     await flush();
     const copy = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes(zh['detail.copyPath']))!;
     click(copy);
-    expect(writeText).toHaveBeenCalledWith(USER_DETAIL.path);
+    expect(writeText).toHaveBeenCalledWith(USER_ITEM.path);
     act(() => root.unmount());
     // @ts-expect-error cleanup: delete the stubbed clipboard
     delete navigator.clipboard;
@@ -238,11 +275,11 @@ describe('DetailView', () => {
     vi.stubGlobal('confirm', confirmMock);
     const api = makeApi();
     api.detail.mockResolvedValue(USER_DETAIL);
-    const { container, root, props } = renderDetail(api);
+    const { container, root, props } = renderDetail(api, { item: USER_ITEM });
     await flush();
     const uninstall = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes(zh['detail.uninstall']))!;
     click(uninstall);
-    expect(confirmMock).toHaveBeenCalledWith(zh['uninstall.confirm'].replace('{name}', USER_DETAIL.name));
+    expect(confirmMock).toHaveBeenCalledWith(zh['uninstall.confirm'].replace('{name}', USER_ITEM.name));
     expect(props.onUninstall).toHaveBeenCalledTimes(1);
 
     // Cancel path: no callback.
@@ -252,10 +289,10 @@ describe('DetailView', () => {
     act(() => root.unmount());
   });
 
-  it('flips the switch intent through onToggle with the target state', async () => {
+  it('reports the switch intent through onToggle with the target state', async () => {
     const api = makeApi();
     api.detail.mockResolvedValue(USER_DETAIL);
-    const { container, root, props } = renderDetail(api);
+    const { container, root, props } = renderDetail(api, { item: USER_ITEM });
     await flush();
     const sw = container.querySelector('button[role="switch"]')!;
     expect(sw.getAttribute('aria-checked')).toBe('true');
@@ -265,19 +302,30 @@ describe('DetailView', () => {
     act(() => root.unmount());
   });
 
-  it('shows bundled path line and hides actions when path is undefined', async () => {
+  it('shows bundled path line and hides actions when the item has no path', async () => {
     const api = makeApi();
-    api.detail.mockResolvedValue(BUNDLED_DETAIL);
-    const { container, root } = renderDetail(api, { name: 'code-review' });
+    api.detail.mockResolvedValue({ ...USER_DETAIL, name: 'code-review' });
+    const { container, root } = renderDetail(api, { name: 'code-review', item: BUNDLED_ITEM });
     await flush();
     expect(container.textContent).toContain(zh['detail.pathBundled']);
     expect(container.querySelector('button[role="switch"]')).toBeNull();
-    expect([...container.querySelectorAll('button')].some((b) => b.textContent?.includes(zh['detail.copyPath']))).toBe(false);
-    expect([...container.querySelectorAll('button')].some((b) => b.textContent?.includes(zh['detail.uninstall']))).toBe(false);
+    expect(hasAction(container, zh['detail.copyPath'])).toBe(false);
+    expect(hasAction(container, zh['detail.uninstall'])).toBe(false);
     act(() => root.unmount());
   });
 
-  it('null-checks a host-only payload: renders name/frontmatter/body, no path line, no actions', async () => {
+  it('shows runtime path line and hides actions for a runtime item', async () => {
+    const api = makeApi();
+    api.detail.mockResolvedValue({ ...USER_DETAIL, name: 'ux-scan' });
+    const { container, root } = renderDetail(api, { name: 'ux-scan', item: RUNTIME_ITEM });
+    await flush();
+    expect(container.textContent).toContain(zh['detail.pathRuntime']);
+    expect(container.querySelector('button[role="switch"]')).toBeNull();
+    expect(hasAction(container, zh['detail.copyPath'])).toBe(false);
+    act(() => root.unmount());
+  });
+
+  it('degrades to name + frontmatter + body when no item is passed (host-only payload)', async () => {
     const api = makeApi();
     api.detail.mockResolvedValue(HOST_ONLY_DETAIL);
     const { container, root } = renderDetail(api, { name: 'demo' });
@@ -285,18 +333,22 @@ describe('DetailView', () => {
     expect(container.textContent).toContain('demo');
     expect(container.textContent).toContain('name: demo'); // frontmatter
     expect(container.textContent).toContain('Demo'); // body heading
+    // no chrome derived from metadata that never arrived
     expect(container.textContent).not.toContain('~/.dsh/skills/demo/SKILL.md');
+    expect(container.textContent).not.toContain(zh['card.invokable'].replace('{names}', ''));
     expect(container.querySelector('button[role="switch"]')).toBeNull();
+    expect(hasAction(container, zh['detail.copyPath'])).toBe(false);
+    expect(hasAction(container, zh['detail.uninstall'])).toBe(false);
     act(() => root.unmount());
   });
 
-  it('shows a load error state and recovers on retry', async () => {
+  it('shows the detail load error with the host message and recovers on retry', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const api = makeApi();
     api.detail.mockRejectedValueOnce(new Error('boom')).mockResolvedValue(USER_DETAIL);
-    const { container, root } = renderDetail(api);
+    const { container, root } = renderDetail(api, { item: USER_ITEM });
     await flush();
-    expect(container.textContent).toContain(zh['panel.loadError']);
+    expect(container.textContent).toContain(zh['detail.loadError'].replace('{error}', 'boom'));
 
     const retry = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes(zh['panel.retry']))!;
     expect(retry).toBeDefined();

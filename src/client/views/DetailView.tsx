@@ -5,22 +5,24 @@
 // switch) in the header, then a header card (icon, name, invokable/linked
 // badges, path line) and the frontmatter code block + markdown-lite body.
 //
-// Metadata null-checking (Task 7 forward note): the host detail route only
-// returns name/frontmatter/body, so level/path/linked/modelInvocable/… may be
-// undefined. The view derives what it can: the path line from `level`
-// (user-dsh → ~/.dsh/skills/<name>/SKILL.md, bundled → 系统内置, runtime →
-// 运行时注册), falling back to the raw `path` when level is missing. The
-// manage actions (copy/uninstall/toggle) only appear when a real file path is
-// available (user-dsh skills; derived path), because setEnabled/uninstall are
-// file-backed — bundled/runtime skills are read-only, matching SkillCard.
+// Merged-list-entry seam (controller review, Task 11 fix): the host detail
+// route returns only name/frontmatter/body, so all UI chrome — path line,
+// badges and the manage actions — is keyed on the optional `item?: SkillItem`
+// prop (the list entry the Task 14 controller passes in). The path line maps
+// `level` per the design doc (user-dsh → ~/.dsh/skills/<name>/SKILL.md,
+// bundled → 系统内置, runtime → 运行时注册); the manage actions
+// (copy/uninstall/toggle) only appear when the item carries a real file path,
+// because setEnabled/uninstall are file-backed — bundled/runtime skills are
+// read-only, matching SkillCard. When `item` is absent the view degrades to
+// name + frontmatter + body only (no chrome, no crash, nothing undefined).
 //
 // Mutations are delegated to the parent via `onToggle(enabled)` /
 // `onUninstall()` (the Task 14 controller owns the API calls and view
 // switching); the switch is a controlled role=switch whose aria-checked
-// mirrors the payload. Copy is local best-effort with an inline error.
+// mirrors the item. Copy is local best-effort with an inline error.
 
 import { useCallback, useEffect, useState } from 'react';
-import type { DetailPayload, SkillApi } from '../api';
+import type { DetailPayload, SkillApi, SkillItem } from '../api';
 import { zh } from '../locales';
 import { markdownLite } from './markdown-lite';
 import styles from './skill-center.module.css';
@@ -29,6 +31,12 @@ export interface DetailViewProps {
   api: SkillApi;
   /** Skill name to load; the parent passes the list-entry name. */
   name: string;
+  /**
+   * The merged list entry supplying the UI chrome the host detail route does
+   * not send (level/path/linked/modelInvocable/userInvocable). Optional: when
+   * absent, the view shows only name + frontmatter + body.
+   */
+  item?: SkillItem;
   /** Navigate back to the list. */
   onBack: () => void;
   /** The user confirmed uninstall (mutation owned by the controller). */
@@ -108,32 +116,20 @@ function TrashIcon() {
 }
 
 /**
- * The path line shown under the skill name. Derived from `level` per the
- * design doc; when the level is unknown (host-only payload) the raw `path`
- * is shown verbatim, and with neither the line is omitted.
+ * The path line shown under the skill name, mapped from the merged item's
+ * `level` per the design doc. Undefined when there is no item.
  */
-function pathLineFor(payload: DetailPayload): string | undefined {
-  if (payload.level === 'user-dsh') return zh['detail.pathUserSkill'].replace('{name}', payload.name);
-  if (payload.level === 'bundled') return zh['detail.pathBundled'];
-  if (payload.level === 'runtime') return zh['detail.pathRuntime'];
-  return payload.path;
-}
-
-/**
- * The real file path the manage actions operate on: the payload's own path,
- * or the canonical user-skill path when the level says user-dsh (the host
- * omits `path` from the detail route). Undefined for bundled/runtime → the
- * actions are hidden.
- */
-function actionPathFor(payload: DetailPayload): string | undefined {
-  if (payload.path !== undefined) return payload.path;
-  if (payload.level === 'user-dsh') return zh['detail.pathUserSkill'].replace('{name}', payload.name);
+function pathLineFor(item: SkillItem): string | undefined {
+  if (item.level === 'user-dsh') return zh['detail.pathUserSkill'].replace('{name}', item.name);
+  if (item.level === 'bundled') return zh['detail.pathBundled'];
+  if (item.level === 'runtime') return zh['detail.pathRuntime'];
   return undefined;
 }
 
-export function DetailView({ api, name, onBack, onUninstall, onToggle }: DetailViewProps) {
+export function DetailView({ api, name, item, onBack, onUninstall, onToggle }: DetailViewProps) {
   const [payload, setPayload] = useState<DetailPayload | null>(null);
   const [status, setStatus] = useState<'loading' | 'error' | 'ready'>('loading');
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -142,8 +138,10 @@ export function DetailView({ api, name, onBack, onUninstall, onToggle }: DetailV
       const data = await api.detail(name);
       setPayload(data);
       setStatus('ready');
-    } catch {
+    } catch (err) {
       setStatus('error');
+      const detail = err instanceof Error && err.message !== '' ? err.message : String(err);
+      setLoadError(zh['detail.loadError'].replace('{error}', detail));
     }
   }, [api, name]);
 
@@ -151,11 +149,14 @@ export function DetailView({ api, name, onBack, onUninstall, onToggle }: DetailV
     void load();
   }, [load]);
 
-  const actionPath = payload !== null ? actionPathFor(payload) : undefined;
+  // UI chrome comes from the merged list entry; without it nothing derived
+  // from metadata is shown (name + frontmatter + body only).
+  const actionPath = item?.path;
   const hasActions = actionPath !== undefined;
   const invokableNames: string[] = [];
-  if (payload?.modelInvocable === true) invokableNames.push(zh['card.model']);
-  if (payload?.userInvocable === true) invokableNames.push(zh['card.user']);
+  if (item?.modelInvocable === true) invokableNames.push(zh['card.model']);
+  if (item?.userInvocable === true) invokableNames.push(zh['card.user']);
+  const pathLine = item !== undefined ? pathLineFor(item) : undefined;
 
   const handleCopy = () => {
     if (actionPath === undefined) return;
@@ -175,10 +176,8 @@ export function DetailView({ api, name, onBack, onUninstall, onToggle }: DetailV
   };
 
   const handleToggle = () => {
-    onToggle(payload?.modelInvocable !== true);
+    onToggle(item?.modelInvocable !== true);
   };
-
-  const pathLine = payload !== null ? pathLineFor(payload) : undefined;
 
   return (
     <div className={styles.root}>
@@ -201,7 +200,7 @@ export function DetailView({ api, name, onBack, onUninstall, onToggle }: DetailV
             <button
               type="button"
               role="switch"
-              aria-checked={payload?.modelInvocable === true}
+              aria-checked={item?.modelInvocable === true}
               aria-label={zh['card.toggleTitle']}
               title={zh['card.toggleTitle']}
               className={styles.switch}
@@ -223,7 +222,7 @@ export function DetailView({ api, name, onBack, onUninstall, onToggle }: DetailV
 
         {status === 'error' && (
           <div className={styles.state}>
-            <span className={styles.stateText}>{zh['panel.loadError']}</span>
+            <span className={styles.stateText}>{loadError ?? zh['detail.loadError'].replace('{error}', '')}</span>
             <button type="button" className={styles.btn} onClick={() => void load()}>
               {zh['panel.retry']}
             </button>
@@ -244,7 +243,7 @@ export function DetailView({ api, name, onBack, onUninstall, onToggle }: DetailV
                       {zh['card.invokable'].replace('{names}', invokableNames.join(' · '))}
                     </span>
                   )}
-                  {payload.linked === true && (
+                  {item?.linked === true && (
                     <span className={`${styles.badge} ${styles.badgeLinked}`}>{zh['card.linked']}</span>
                   )}
                 </div>

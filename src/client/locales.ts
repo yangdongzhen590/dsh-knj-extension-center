@@ -47,6 +47,7 @@ export const zh = {
   'detail.pathUserSkill': '~/.dsh/skills/{name}/SKILL.md',
   'detail.pathBundled': '系统内置 · 随 DSH 与插件分发',
   'detail.pathRuntime': '运行时注册 · 无文件路径',
+  'detail.loadError': '详情加载失败：{error}',
 
   // Enable/disable toggle feedback
   'toggle.enabledToast': '已启用：{name} 模型可调用',
@@ -147,6 +148,7 @@ export const en: Record<SkillCenterKey, string> = {
   'detail.pathUserSkill': '~/.dsh/skills/{name}/SKILL.md',
   'detail.pathBundled': 'System bundled · ships with DSH and plugins',
   'detail.pathRuntime': 'Runtime registered · no file path',
+  'detail.loadError': 'Failed to load detail: {error}',
 
   'toggle.enabledToast': 'Enabled: {name} is model-invocable',
   'toggle.disabledToast': 'Disabled: {name} is not model-invocable',
