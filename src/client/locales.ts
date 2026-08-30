@@ -39,6 +39,8 @@ export const zh = {
   'card.copyPathTitle': '复制路径',
   'card.uninstallTitle': '卸载（移入回收站）',
   'card.copyFail': '复制路径失败',
+  'card.openTitle': '查看详情',
+  'card.noDetailHint': '系统内置/运行时技能无文件详情，不可查看',
 
   // Detail view
   'detail.backToList': '返回列表',
@@ -156,6 +158,8 @@ export const en: Record<SkillCenterKey, string> = {
   'card.copyPathTitle': 'Copy path',
   'card.uninstallTitle': 'Uninstall (move to trash)',
   'card.copyFail': 'Failed to copy path',
+  'card.openTitle': 'View details',
+  'card.noDetailHint': 'Bundled/runtime skills have no file details to view',
 
   'detail.backToList': 'Back to list',
   'detail.copyPath': 'Copy path',

@@ -77,7 +77,9 @@ function TrashIcon() {
 
 export function SkillCard({ skill, error, onOpen, onToggle, onUninstall }: SkillCardProps) {
   // Bundled / runtime skills have no filesystem path: nothing to toggle,
-  // copy or uninstall.
+  // copy or uninstall — and no file detail to open. Their cards are rendered
+  // as an explicit disabled state (not clickable, no role/tabIndex, visual
+  // hint + tooltip) instead of silently swallowing clicks.
   const hasPath = skill.path !== undefined;
   const [copyError, setCopyError] = useState<string | null>(null);
 
@@ -123,12 +125,17 @@ export function SkillCard({ skill, error, onOpen, onToggle, onUninstall }: Skill
 
   return (
     <article
-      className={styles.card}
+      className={`${styles.card}${hasPath ? '' : ` ${styles.cardDisabled}`}`}
       data-skill-name={skill.name}
-      role="button"
-      tabIndex={0}
-      onClick={() => onOpen(skill)}
-      onKeyDown={handleCardKeyDown}
+      {...(hasPath
+        ? {
+            role: 'button' as const,
+            tabIndex: 0,
+            title: zh['card.openTitle'],
+            onClick: () => onOpen(skill),
+            onKeyDown: handleCardKeyDown,
+          }
+        : { title: zh['card.noDetailHint'] })}
     >
       <div className={styles.cardTop}>
         <span className={styles.cardIcon}>

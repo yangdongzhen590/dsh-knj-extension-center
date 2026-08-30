@@ -182,6 +182,26 @@ describe('SkillCard', () => {
     act(() => root.unmount());
   });
 
+  it('renders pathless cards as a disabled state: not clickable, no role/tabIndex, hint title', () => {
+    const onOpen = vi.fn();
+    const { container, root } = mount(
+      <SkillCard skill={BUNDLED_SKILL} onOpen={onOpen} onToggle={() => {}} onUninstall={() => {}} />,
+    );
+    const card = container.querySelector('[data-skill-name="code-review"]')!;
+    expect(card).not.toBeNull();
+    expect(card.getAttribute('role')).toBeNull();
+    expect(card.hasAttribute('tabindex')).toBe(false);
+    expect(card.getAttribute('title')).toBe(zh['card.noDetailHint']);
+    // 点击与键盘均不触发 onOpen
+    (card as HTMLElement).click();
+    expect(onOpen).not.toHaveBeenCalled();
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(onOpen).not.toHaveBeenCalled();
+    // 禁用态类名已应用
+    expect(card.className).toContain('cardDisabled');
+    act(() => root.unmount());
+  });
+
   it('copies the path via navigator.clipboard without opening the card', () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {

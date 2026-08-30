@@ -80,31 +80,64 @@ const CLIENT_EXTERNALS = [
   '@deepseek-ai/dsh-client-ui-slots',
 ]
 
-export default defineConfig({
-  entry: { client: 'src/client/index.ts' },
+/** Host externals: cordis is a host-provided peer; yauzl is an npm dependency. */
+const HOST_EXTERNALS = ['@deepseek-ai/cordis', 'yauzl']
+
+/**
+ * Host bundle: single-file ESM built by tsdown (NOT multi-file tsc output).
+ * Multi-file ESM emits extension-less relative imports (`./collect`) that
+ * Node's strict ESM resolver rejects at runtime (`ERR_MODULE_NOT_FOUND:
+ * .../lib/routes`), silently failing the whole plugin at host boot. A single
+ * inlined ESM file (like the shipped skill-explorer lib/index.js) has no
+ * relative resolution problem; `node:` builtins and the host externals stay
+ * as imports/requires.
+ */
+const hostConfig = {
+  entry: { index: 'src/index.ts' },
   outDir: 'lib',
-  format: 'cjs',
-  platform: 'browser',
+  format: 'esm',
+  platform: 'node',
   target: 'es2022',
   dts: false,
   sourcemap: false,
-  // 不清理 outDir：host 侧由 tsc 产出 lib/index.js（见 package.json build 脚本），
-  // tsdown 只负责追加 client bundle，避免 tsc 产物被清空。
   clean: false,
-  plugins: [cssModulePlugin()],
   deps: {
-    neverBundle: [...CLIENT_EXTERNALS],
-    alwaysBundle: (source: string) => (CLIENT_EXTERNALS.includes(source) ? undefined : true),
-  },
-  define: {
-    'process.env.NODE_ENV': JSON.stringify('production'),
-    'import.meta.env.MODE': JSON.stringify('production'),
-    'import.meta.env': JSON.stringify({ MODE: 'production' }),
+    neverBundle: [...HOST_EXTERNALS],
+    alwaysBundle: (source: string) => (HOST_EXTERNALS.includes(source) ? undefined : true),
   },
   outputOptions: {
-    entryFileNames: 'client.js',
-    banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(PLUGIN_ID)}, factory: (require) => {`,
-    footer: 'return module.exports; } });',
-    intro: 'var module = { exports: {} }; var exports = module.exports;',
+    entryFileNames: 'index.js',
   },
-})
+}
+
+export default defineConfig([
+  hostConfig,
+  {
+    entry: { client: 'src/client/index.ts' },
+    outDir: 'lib',
+    format: 'cjs',
+    platform: 'browser',
+    target: 'es2022',
+    dts: false,
+    sourcemap: false,
+    // 不清理 outDir：host 侧由上面 hostConfig 产出 lib/index.js，
+    // 本配置只追加 client bundle。
+    clean: false,
+    plugins: [cssModulePlugin()],
+    deps: {
+      neverBundle: [...CLIENT_EXTERNALS],
+      alwaysBundle: (source: string) => (CLIENT_EXTERNALS.includes(source) ? undefined : true),
+    },
+    define: {
+      'process.env.NODE_ENV': JSON.stringify('production'),
+      'import.meta.env.MODE': JSON.stringify('production'),
+      'import.meta.env': JSON.stringify({ MODE: 'production' }),
+    },
+    outputOptions: {
+      entryFileNames: 'client.js',
+      banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(PLUGIN_ID)}, factory: (require) => {`,
+      footer: 'return module.exports; } });',
+      intro: 'var module = { exports: {} }; var exports = module.exports;',
+    },
+  },
+])
