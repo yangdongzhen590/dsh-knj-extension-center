@@ -71,4 +71,33 @@ describe('trash cycle', () => {
     await purgeTrashItem(items[0]);
     expect(await listTrash(root)).toHaveLength(0);
   });
+  it('parses dir names with the same-millisecond random suffix and restores to the real original', async () => {
+    const root = tmpDir();
+    mkdirSync(join(root, '.trash', 'my-skill-1720000000000-abc123'), { recursive: true });
+    writeFileSync(join(root, '.trash', 'my-skill-1720000000000-abc123', 'SKILL.md'), '---\nname: my-skill\ndescription: d\n---\n');
+    const items = await listTrash(root);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ name: 'my-skill', originalPath: join(root, 'my-skill'), deletedAt: '1720000000000', legacy: false });
+    await restoreTrashItem(items[0]);
+    expect(existsSync(join(root, 'my-skill', 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(root, '.trash', 'my-skill-1720000000000-abc123'))).toBe(false);
+  });
+  it('parses single-file names with the same-millisecond random suffix and restores the .md', async () => {
+    const root = tmpDir();
+    mkdirSync(join(root, '.trash'), { recursive: true });
+    writeFileSync(join(root, '.trash', 'demo.md-1720000000000-abc123'), '---\nname: demo\ndescription: d\n---\nbody');
+    const items = await listTrash(root);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ name: 'demo', originalPath: join(root, 'demo.md'), deletedAt: '1720000000000', legacy: false });
+    await restoreTrashItem(items[0]);
+    expect(readFileSync(join(root, 'demo.md'), 'utf8')).toBe('---\nname: demo\ndescription: d\n---\nbody');
+  });
+  it('parses skill names that end in digits (my-skill-2) without the collision suffix', async () => {
+    const root = tmpDir();
+    mkdirSync(join(root, '.trash', 'my-skill-2-1720000000000'), { recursive: true });
+    writeFileSync(join(root, '.trash', 'my-skill-2-1720000000000', 'SKILL.md'), '---\nname: my-skill-2\ndescription: d\n---\n');
+    const items = await listTrash(root);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ name: 'my-skill-2', originalPath: join(root, 'my-skill-2') });
+  });
 });

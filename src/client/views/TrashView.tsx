@@ -190,6 +190,9 @@ export function TrashView({ api, onBack, onChanged }: TrashViewProps) {
    */
   const handleClearAll = async () => {
     if (clearingRef.current) return;
+    // A row restore/purge in flight would race the snapshot: its outcome
+    // could land mid-batch and the stale `kept` computation resurrect it.
+    if (pendingRef.current.size > 0) return;
     if (items.length === 0) return;
     if (!window.confirm(zh['trash.clearAllConfirm'])) return;
     clearingRef.current = true;

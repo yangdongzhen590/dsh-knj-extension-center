@@ -409,4 +409,34 @@ describe('TrashView', () => {
     expect(props.onChanged).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
+
+  it('blocks clear-all while a row restore is in flight (no purge, no confirm)', async () => {
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    const api = makeApi();
+    api.trashList.mockResolvedValue({ items: [ITEM_A, ITEM_B] });
+    const d = deferred<void>();
+    api.trashRestore.mockReturnValue(d.promise);
+    const { container, root, props } = renderTrash(api);
+    await flush();
+
+    // Start a row restore (in flight, unresolved).
+    const restoreA = buttonByText(row(container, 'dsh-knj-prompts')!, zh['trash.restore']);
+    click(restoreA);
+    expect(api.trashRestore).toHaveBeenCalledTimes(1);
+
+    // Clear-all must be blocked by the in-flight guard: no confirm, no purge.
+    click(buttonByText(container, zh['trash.clearAll']));
+    expect(vi.mocked(confirm)).not.toHaveBeenCalled();
+    expect(api.trashPurge).not.toHaveBeenCalled();
+    expect(props.onChanged).not.toHaveBeenCalled();
+
+    // Resolve the restore; the row comes back and the view is consistent.
+    await act(async () => {
+      d.resolve();
+    });
+    await flush();
+    expect(row(container, 'dsh-knj-prompts')).toBeNull();
+    expect(row(container, 'my-workflow')).not.toBeNull();
+    act(() => root.unmount());
+  });
 });

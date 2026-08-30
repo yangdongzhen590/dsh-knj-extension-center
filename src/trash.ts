@@ -89,12 +89,14 @@ export async function listTrash(skillsRoot: string): Promise<TrashItem[]> {
     if (ent.isDirectory()) {
       const skillFile = join(full, 'SKILL.md');
       if (await isFile(skillFile)) {
-        const name = ent.name.replace(/-\d+$/, '');
+        // Optional same-millisecond random suffix (-<rand6>, base36) must be
+        // stripped too, otherwise restore lands on a stray suffixed directory.
+        const name = ent.name.replace(/-\d+(-[a-z0-9]{6})?$/, '');
         items.push({
           name,
           trashPath: full,
           originalPath: join(skillsRoot, name),
-          deletedAt: /-(\d+)$/.exec(ent.name)?.[1] ?? '',
+          deletedAt: /-(\d+)(?:-[a-z0-9]{6})?$/.exec(ent.name)?.[1] ?? '',
           legacy: false,
         });
       }
@@ -114,8 +116,9 @@ export async function listTrash(skillsRoot: string): Promise<TrashItem[]> {
       }
       // New single-file format `<name>.md-<ts>`: the file name minus the
       // `-<ts>` suffix keeps the .md, so originalPath points back at the
-      // whole-file skill it came from.
-      const single = /^(.*\.md)-(\d+)$/.exec(ent.name);
+      // whole-file skill it came from. Same-millisecond random suffix is
+      // stripped too.
+      const single = /^(.*\.md)-(\d+)(?:-[a-z0-9]{6})?$/.exec(ent.name);
       if (single) {
         const fileName = single[1];
         items.push({
