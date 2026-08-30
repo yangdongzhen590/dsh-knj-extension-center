@@ -11,8 +11,19 @@
 // occupied" case included — surface the host message inline and keep the row;
 // clear-all keeps the entries whose purge failed. Load failures show the
 // locale error state with a retry button.
+//
+// In-flight guard (Task 12 review fix): every mutation marks its row pending
+// for the duration of the api call and disables the row buttons, so a fast
+// double-click cannot fire the request twice (the second call would fail
+// against a row that is already gone, and its error would land on a removed
+// row). Row ops are also blocked while a clear-all batch is in flight — that
+// closes the snapshot race where a restore landing mid-clear would be
+// resurrected by the clear result's `kept` list. A synchronous ref mirrors
+// each pending flag because React's re-render lands after the click handler
+// returns, and the second click of a double-click can be dispatched before
+// the button is actually disabled.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SkillApi, TrashItem } from '../api';
 import { zh } from '../locales';
 import styles from './skill-center.module.css';
@@ -86,6 +97,12 @@ export function TrashView({ api, onBack, onChanged }: TrashViewProps) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   // Clear-all banner: set when at least one purge in the batch failed.
   const [clearError, setClearError] = useState<string | null>(null);
+  // In-flight flags: per-row op (trashPath → true) and the clear-all batch.
+  const [pending, setPending] = useState<Record<string, boolean>>({});
+  const [clearing, setClearing] = useState(false);
+  // Synchronous mirrors of the pending flags (see the header comment).
+  const pendingRef = useRef<Set<string>>(new Set());
+  const clearingRef = useRef(false);
 
   const load = useCallback(async () => {
     setStatus('loading');
@@ -113,6 +130,9 @@ export function TrashView({ api, onBack, onChanged }: TrashViewProps) {
   };
 
   const handleRestore = async (item: TrashItem) => {
+    if (clearingRef.current || pendingRef.current.has(item.trashPath)) return;
+    pendingRef.current.add(item.trashPath);
+    setPending((prev) => ({ ...prev, [item.trashPath]: true }));
     try {
       await api.trashRestore(item.trashPath);
       clearErrorFor(item.trashPath);
@@ -124,12 +144,22 @@ export function TrashView({ api, onBack, onChanged }: TrashViewProps) {
         ...prev,
         [item.trashPath]: zh['trash.restoreFail'].replace('{error}', failureDetail(err)),
       }));
+    } finally {
+      pendingRef.current.delete(item.trashPath);
+      setPending((prev) => {
+        const next = { ...prev };
+        delete next[item.trashPath];
+        return next;
+      });
     }
   };
 
   const handlePurge = async (item: TrashItem) => {
+    if (clearingRef.current || pendingRef.current.has(item.trashPath)) return;
     const message = zh['trash.purgeConfirm'].replace('{name}', item.name);
     if (!window.confirm(message)) return;
+    pendingRef.current.add(item.trashPath);
+    setPending((prev) => ({ ...prev, [item.trashPath]: true }));
     try {
       await api.trashPurge(item.trashPath);
       clearErrorFor(item.trashPath);
@@ -141,26 +171,47 @@ export function TrashView({ api, onBack, onChanged }: TrashViewProps) {
         ...prev,
         [item.trashPath]: zh['trash.purgeFail'].replace('{error}', failureDetail(err)),
       }));
+    } finally {
+      pendingRef.current.delete(item.trashPath);
+      setPending((prev) => {
+        const next = { ...prev };
+        delete next[item.trashPath];
+        return next;
+      });
     }
   };
 
-  /** Empty the trash: purge every entry (parallel), keep the failed ones. */
+  /**
+   * Empty the trash: purge every entry (parallel), keep the failed ones.
+   * While the batch is in flight the clear button and every row action are
+   * disabled, so the captured snapshot is still current when the results
+   * land — a row cannot be restored/removed mid-clear and then resurrected
+   * by the `kept` computation.
+   */
   const handleClearAll = async () => {
+    if (clearingRef.current) return;
     if (items.length === 0) return;
     if (!window.confirm(zh['trash.clearAllConfirm'])) return;
+    clearingRef.current = true;
+    setClearing(true);
     setClearError(null);
     setErrors({});
     const snapshot = items;
-    const results = await Promise.allSettled(snapshot.map((item) => api.trashPurge(item.trashPath)));
-    const firstFailure = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
-    if (firstFailure !== undefined) {
-      const kept = snapshot.filter((_, i) => results[i]?.status === 'rejected');
-      setItems(kept);
-      setClearError(zh['trash.clearFail'].replace('{error}', failureDetail(firstFailure.reason)));
-    } else {
-      setItems([]);
+    try {
+      const results = await Promise.allSettled(snapshot.map((item) => api.trashPurge(item.trashPath)));
+      const firstFailure = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (firstFailure !== undefined) {
+        const kept = snapshot.filter((_, i) => results[i]?.status === 'rejected');
+        setItems(kept);
+        setClearError(zh['trash.clearFail'].replace('{error}', failureDetail(firstFailure.reason)));
+      } else {
+        setItems([]);
+      }
+      onChanged(); // some (or all) entries were purged — the list changed
+    } finally {
+      clearingRef.current = false;
+      setClearing(false);
     }
-    onChanged(); // some (or all) entries were purged — the list changed
   };
 
   return (
@@ -175,7 +226,12 @@ export function TrashView({ api, onBack, onChanged }: TrashViewProps) {
           <div className={styles.subtitle}>{zh['trash.subtitle']}</div>
         </div>
         <span className={styles.spacer} />
-        <button type="button" className={styles.btn} onClick={() => void handleClearAll()}>
+        <button
+          type="button"
+          className={styles.btn}
+          onClick={() => void handleClearAll()}
+          disabled={clearing}
+        >
           {zh['trash.clearAll']}
         </button>
       </header>
@@ -231,13 +287,19 @@ export function TrashView({ api, onBack, onChanged }: TrashViewProps) {
                   )}
                 </div>
                 <span className={styles.trashSpacer} />
-                <button type="button" className={`${styles.btn} ${styles.btnSm}`} onClick={() => void handleRestore(item)}>
+                <button
+                  type="button"
+                  className={`${styles.btn} ${styles.btnSm}`}
+                  onClick={() => void handleRestore(item)}
+                  disabled={clearing || pending[item.trashPath] === true}
+                >
                   {zh['trash.restore']}
                 </button>
                 <button
                   type="button"
                   className={`${styles.btn} ${styles.btnSm} ${styles.btnDanger}`}
                   onClick={() => void handlePurge(item)}
+                  disabled={clearing || pending[item.trashPath] === true}
                 >
                   {zh['trash.purge']}
                 </button>

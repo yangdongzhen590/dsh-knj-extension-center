@@ -77,6 +77,15 @@ function makeApi(): ApiMock {
   };
 }
 
+/** Manually-resolvable promise for in-flight / race tests. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 function renderTrash(
   api: ApiMock,
   overrides: Partial<Omit<TrashViewProps, 'api'>> = {},
@@ -292,6 +301,112 @@ describe('TrashView', () => {
     expect(row(container, 'dsh-knj-prompts')).not.toBeNull();
     expect(props.onChanged).not.toHaveBeenCalled();
     warn.mockRestore();
+    act(() => root.unmount());
+  });
+
+  it('guards restore against double-firing: row buttons disabled while the call is in flight', async () => {
+    const api = makeApi();
+    api.trashList.mockResolvedValue({ items: [ITEM_A] });
+    const d = deferred<void>();
+    api.trashRestore.mockReturnValue(d.promise);
+    const { container, root } = renderTrash(api);
+    await flush();
+
+    const restoreBtn = buttonByText(row(container, 'dsh-knj-prompts')!, zh['trash.restore']);
+    const purgeBtn = buttonByText(row(container, 'dsh-knj-prompts')!, zh['trash.purge']);
+
+    // A second click before the call settles must not fire a second request.
+    click(restoreBtn);
+    click(restoreBtn);
+    expect(api.trashRestore).toHaveBeenCalledTimes(1);
+    // Both row buttons are disabled while the op is in flight.
+    expect(restoreBtn.disabled).toBe(true);
+    expect(purgeBtn.disabled).toBe(true);
+
+    await act(async () => {
+      d.resolve();
+    });
+    await flush();
+    expect(api.trashRestore).toHaveBeenCalledTimes(1);
+    expect(row(container, 'dsh-knj-prompts')).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it('guards purge: no second api call and row buttons disabled while purge is in flight', async () => {
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    const api = makeApi();
+    api.trashList.mockResolvedValue({ items: [ITEM_A] });
+    const d = deferred<void>();
+    api.trashPurge.mockReturnValue(d.promise);
+    const { container, root } = renderTrash(api);
+    await flush();
+
+    const purgeBtn = buttonByText(row(container, 'dsh-knj-prompts')!, zh['trash.purge']);
+    const restoreBtn = buttonByText(row(container, 'dsh-knj-prompts')!, zh['trash.restore']);
+
+    click(purgeBtn);
+    click(purgeBtn);
+    expect(api.trashPurge).toHaveBeenCalledTimes(1);
+    expect(purgeBtn.disabled).toBe(true);
+    expect(restoreBtn.disabled).toBe(true);
+
+    await act(async () => {
+      d.resolve();
+    });
+    await flush();
+    expect(row(container, 'dsh-knj-prompts')).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it('disables all row actions and the clear button while clear-all is in flight; restore cannot fire mid-clear', async () => {
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    const api = makeApi();
+    api.trashList.mockResolvedValue({ items: [ITEM_A, ITEM_B] });
+    const dA = deferred<void>();
+    const dB = deferred<void>();
+    api.trashPurge.mockReturnValueOnce(dA.promise).mockReturnValueOnce(dB.promise);
+    const { container, root, props } = renderTrash(api);
+    await flush();
+
+    const clearBtn = buttonByText(container, zh['trash.clearAll']);
+    click(clearBtn);
+
+    // In flight: the clear button itself and every row action are disabled.
+    expect(clearBtn.disabled).toBe(true);
+    const restoreA = buttonByText(row(container, 'dsh-knj-prompts')!, zh['trash.restore']);
+    const purgeA = buttonByText(row(container, 'dsh-knj-prompts')!, zh['trash.purge']);
+    expect(restoreA.disabled).toBe(true);
+    expect(purgeA.disabled).toBe(true);
+
+    // A row restore attempted during clearing must not reach the api.
+    click(restoreA);
+    expect(api.trashRestore).not.toHaveBeenCalled();
+    expect(props.onChanged).not.toHaveBeenCalled();
+
+    await act(async () => {
+      dA.resolve();
+      dB.resolve();
+    });
+    await flush();
+    expect(api.trashPurge).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain(zh['trash.empty']);
+    act(() => root.unmount());
+  });
+
+  it('clear-all cancel path: confirm=false purges nothing', async () => {
+    const confirmMock = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirmMock);
+    const api = makeApi();
+    api.trashList.mockResolvedValue({ items: [ITEM_A, ITEM_B] });
+    const { container, root, props } = renderTrash(api);
+    await flush();
+
+    click(buttonByText(container, zh['trash.clearAll']));
+    expect(confirmMock).toHaveBeenCalledWith(zh['trash.clearAllConfirm']);
+    expect(api.trashPurge).not.toHaveBeenCalled();
+    expect(row(container, 'dsh-knj-prompts')).not.toBeNull();
+    expect(row(container, 'my-workflow')).not.toBeNull();
+    expect(props.onChanged).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
 });

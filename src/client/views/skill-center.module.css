@@ -78,6 +78,11 @@
   outline: 2px solid var(--dsw-alias-state-business-primary);
   outline-offset: 1px;
 }
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+  pointer-events: none;
+}
 
 /* ===== toolbar: search ===== */
 .toolbar {
