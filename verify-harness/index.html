@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>dsh-knj-extension-center — loader harness (synthetic)</title>
+<style>
+  /* Minimal DSH theme tokens so the panel is legible in screenshots. */
+  :root {
+    --dsw-alias-bg-base: #f7f7f8;
+    --dsw-alias-bg-layer-1: #ffffff;
+    --dsw-alias-label-primary: #1f2328;
+    --dsw-alias-label-secondary: #444a51;
+    --dsw-alias-label-tertiary: #8b939b;
+    --dsw-alias-label-primary-inverted: #ffffff;
+    --dsw-alias-border-l2: #d9dde3;
+    --dsw-alias-interactive-bg-hover: #eceff2;
+    --dsw-alias-interactive-bg-active: #e2e8f0;
+    --dsw-alias-button-primary-fill: #2563eb;
+    --dsw-alias-button-primary-hover: #1d4ed8;
+    --dsw-alias-state-business-primary: #2563eb;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; display: flex; height: 100vh; }
+  #sidebar { width: 220px; border-right: 1px solid #d9dde3; background: #fbfbfc; padding: 10px; flex: none; }
+  #sidebar h3 { font-size: 12px; color: #8b939b; margin: 0 0 8px; font-weight: 600; }
+  #column { position: relative; flex: 1; overflow: hidden; background: var(--dsw-alias-bg-base); }
+  #log {
+    position: fixed; right: 0; top: 0; bottom: 0; width: 300px; overflow: auto;
+    background: #101418; color: #9fe8a8; font: 11px/1.5 Consolas, monospace;
+    padding: 10px; white-space: pre-wrap;
+  }
+  #status { position: fixed; left: 0; bottom: 0; padding: 6px 10px; background: #2563eb; color: #fff; font-size: 12px; z-index: 99; }
+  .pass { color: #7ee787; }
+  .fail { color: #ff7b72; }
+</style>
+</head>
+<body>
+<div id="sidebar">
+  <h3>knj-menu 区（模拟）</h3>
+  <div id="menuHost"></div>
+</div>
+<div id="column" data-pane="conversation"></div>
+<div id="log">— loader harness log —</div>
+<div id="status">booting…</div>
+
+<script>
+// 1) __ModuleLoader__ stub: captures registrations, materializes on demand.
+window.__ModuleLoader__ = {
+  mode: 'queue',
+  pendingQueue: [],
+  registrations: {},
+  load(registration) { this.registrations[registration.id] = registration; },
+  create() {},
+};
+</script>
+<script src="./react.production.min.js"></script>
+<script src="./react-dom.production.min.js"></script>
+<!-- the REAL built client bundle (classic script → registers its factory).
+     Refresh before running: Copy-Item lib\client.js verify-harness\client.js -->
+<script src="./client.js"></script>
+<script>
+(function () {
+  'use strict';
+  const logEl = document.getElementById('log');
+  const statusEl = document.getElementById('status');
+  let step = 0;
+  function log(line) {
+    step += 1;
+    logEl.textContent += `\n[${String(step).padStart(2, '0')}] ${line}`;
+  }
+  function pass(line) { log(`✓ ${line}`); }
+  function fail(line) { log(`✗ ${line}`); statusEl.textContent = 'FAILED'; statusEl.style.background = '#d1242f'; }
+  // First-class assertion counter: the final "assertions" line is the
+  // machine-verifiable pass count (the report quotes this number, never the
+  // raw log line count, which also contains fetch/diag lines).
+  let assertTotal = 0, assertPassed = 0, assertFailed = 0;
+  function assert(cond, line) {
+    assertTotal += 1;
+    if (cond) { assertPassed += 1; pass(line); }
+    else { assertFailed += 1; fail(line); }
+  }
+  function delay(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+  // 2) module table require: externals resolved like the loader table would.
+  // NB: react/jsx-runtime's jsx(type, props, key) takes the KEY as its 3rd
+  // argument — a plain createElement shim would leak it as a child (the
+  // harness's earlier failure), so the key is folded into props instead.
+  const React = window.React;
+  const ReactDOM = window.ReactDOM;
+  const jsxShim = (type, props, key) => {
+    const p = props === null || props === undefined ? {} : { ...props };
+    if (key !== undefined && key !== null && !('key' in p)) p.key = key;
+    return React.createElement(type, p);
+  };
+  const requireStub = (spec) => {
+    if (spec === 'react') return React;
+    if (spec === 'react-dom') return ReactDOM;
+    if (spec === 'react/jsx-runtime') {
+      return { jsx: jsxShim, jsxs: jsxShim, Fragment: React.Fragment };
+    }
+    throw new Error('loader table cannot answer: ' + spec);
+  };
+
+  // 3) API fixtures (the host REST surface, stubbed).
+  const FIXTURES = {
+    list: { cwd: '/ws', complete: true, groups: [
+      { key: 'bundled', title: '系统内置', hint: 'DSH 与插件随附的全局技能', skills: [
+        { name: 'code-review', description: '沿两个轴审查变更：Standards 与 Spec', whenToUse: '审查分支时', provider: 'bundled', level: 'bundled', path: undefined, linked: false, modelInvocable: true, userInvocable: false },
+      ] },
+      { key: 'user-dsh', title: '用户技能（~/.dsh/skills）', hint: '本机安装的技能，所有项目共享', skills: [
+        { name: 'dsh-doublecheck', description: '工程纪律套件：需求盘问 → 规格记录', whenToUse: '需要交付物质量把关时', provider: 'user-dsh', level: 'user-dsh', path: '~/.dsh/skills/dsh-doublecheck/SKILL.md', linked: false, modelInvocable: true, userInvocable: true },
+      ] },
+    ] },
+    detail: { name: 'dsh-doublecheck', frontmatter: '---\nname: dsh-doublecheck\ndescription: 工程纪律套件\n---', body: '## 交付纪律\n\n- 测试先行（red → green）\n- `npm test` 通过' },
+    trashList: { items: [] },
+  };
+  const fetchCalls = [];
+  window.fetch = async (url, init) => {
+    const u = String(url);
+    const method = (init && init.method) || 'GET';
+    fetchCalls.push(method + ' ' + u);
+    log(`fetch ${method} ${u.replace('/api/dsh-skill-center', '')}`);
+    const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    // NB: order matters — /trash/list must match before the generic /list branch.
+    if (u.includes('/trash/list')) return json(FIXTURES.trashList);
+    if (u.includes('/trash/restore') || u.includes('/trash/purge')) return json({ ok: true });
+    if (u.includes('/detail')) return json(FIXTURES.detail);
+    if (u.includes('/set-enabled')) return json({ ok: true });
+    if (u.includes('/uninstall')) return json({ ok: true });
+    if (u.includes('/install')) return json({ ok: true, name: 'demo-skill', path: '~/.dsh/skills/demo-skill' });
+    if (u.includes('/list')) return json(FIXTURES.list);
+    return new Response(JSON.stringify({ error: 'unhandled ' + u }), { status: 404, headers: { 'content-type': 'application/json' } });
+  };
+
+  async function main() {
+    try {
+      // 4) materialize the real bundle through the loader contract.
+      const reg = window.__ModuleLoader__.registrations['dsh-knj-extension-center'];
+      assert(!!reg, 'bundle registered via __ModuleLoader__.load({ id: "dsh-knj-extension-center", factory })');
+      if (!reg) return;
+      const exports = reg.factory(requireStub);
+      assert(typeof exports.apply === 'function', 'bundle exports apply()');
+      assert(JSON.stringify(exports.inject) === JSON.stringify(['slots', 'locale']), 'bundle exports inject ["slots","locale"]');
+
+      // 5) stub client ctx (slots + locale).
+      const menuRegistrations = [];
+      const injected = {};
+      const localeRegistrations = [];
+      const ctx = {
+        slots: {
+          register(options, component) { menuRegistrations.push({ options, component }); return () => {}; },
+          inject(key, cb) { injected[key] = cb; return () => {}; },
+          entries: () => [], subscribe: () => () => {},
+        },
+        locale: { register(ns, dicts) { localeRegistrations.push({ ns, dicts }); return () => {}; } },
+      };
+
+      const dispose = exports.apply(ctx);
+      assert(typeof dispose === 'function', 'apply returns a disposer');
+
+      // locale registration
+      assert(localeRegistrations.length === 1 && localeRegistrations[0].ns === 'dsh-skill-center',
+        'locale.register("dsh-skill-center", { zh, en }) called');
+      const zhDict = localeRegistrations[0].dicts.zh;
+      assert(zhDict['entry.label'] === '技能中心', 'zh dictionary has entry.label = 技能中心');
+      assert(localeRegistrations[0].dicts.en['entry.label'] === 'Skill Center', 'en dictionary mirrors keys');
+
+      // deferred menu registration through slots.inject
+      assert(typeof injected['knj.menu.item'] === 'function', 'menu registration deferred via slots.inject("knj.menu.item", …)');
+      injected['knj.menu.item']();
+      assert(menuRegistrations.length === 1, 'inject callback registered the menu item');
+      const opts = menuRegistrations[0].options;
+      assert(opts.name === 'knj.menu.item' && opts.id === 'skill-center' && opts.order === -20 && opts.locale === 'zh',
+        'menu options = { name: knj.menu.item, id: skill-center, order: -20, locale: zh }');
+
+      // 6) render the sidebar entry (what knj-menu renders).
+      const menuHost = document.getElementById('menuHost');
+      const entryRoot = ReactDOM.createRoot(menuHost);
+      entryRoot.render(menuRegistrations[0].component());
+      await delay(120);
+      const entryBtn = menuHost.querySelector('button.skill-center-entry');
+      assert(!!entryBtn, 'sidebar entry rendered as button.skill-center-entry');
+      assert(entryBtn && entryBtn.textContent.includes('技能中心'), 'entry label 「技能中心」 visible');
+
+      // 7) the center panel is mounted (hidden) inside the conversation column.
+      await delay(150);
+      const viewContainer = document.querySelector('[data-dsh-skill-center-view]');
+      assert(!!viewContainer, 'panel container mounted in the conversation column (hidden until open)');
+      const activeAttr = 'data-dsh-skill-center-active';
+
+      // 8) click the entry → panel opens → list view fetches and renders.
+      entryBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await delay(400);
+      assert(document.documentElement.hasAttribute(activeAttr), 'entry click set html[data-dsh-skill-center-active]');
+      const listText = viewContainer.textContent;
+      // diagnostics for the card-render check
+      const diag = {
+        styleInjected: !!document.querySelector('style[data-plugin-css="skill-center"]'),
+        skillNameEls: document.querySelectorAll('[data-skill-name]').length,
+        articles: viewContainer.querySelectorAll('article').length,
+        groupKeys: Array.from(viewContainer.querySelectorAll('[data-group-key]')).map((s) => s.getAttribute('data-group-key')),
+        fixtureGroups: FIXTURES.list.groups.map((g) => ({ key: g.key, n: g.skills.length, names: g.skills.map((s) => s.name) })),
+        perSection: Array.from(viewContainer.querySelectorAll('[data-group-key]')).map((s) => ({
+          key: s.getAttribute('data-group-key'),
+          childCount: s.children.length,
+          hasGrid: !!s.querySelector('[class*="grid"]'),
+          gridLen: s.querySelector('[class*="grid"]') ? s.querySelector('[class*="grid"]').innerHTML.length : -1,
+        })),
+      };
+      log('diag: ' + JSON.stringify(diag));
+      // CSS delivery is a FIRST-CLASS check, not just a diagnostic: the loader
+      // only fetches client.js, so the stylesheet must arrive as an injected
+      // <style data-plugin data-plugin-css> tag and the skc-* class map must
+      // be applied to the rendered panel.
+      assert(diag.styleInjected, 'view stylesheet injected as <style data-plugin data-plugin-css="skill-center">');
+      assert(diag.skillNameEls >= 2, 'skill cards present in the DOM (data-skill-name x' + diag.skillNameEls + ')');
+      assert(diag.articles >= 2, 'skill cards rendered as <article> elements (x' + diag.articles + ')');
+      assert(diag.perSection.length === 2 && diag.perSection.every((s) => s.hasGrid && s.gridLen > 0),
+        'each group section renders a non-empty card grid');
+      const skcApplied = !!viewContainer.querySelector('[class*="skc-"]');
+      assert(skcApplied, 'skc-* prefixed classes applied to the panel DOM (CSS module scoping)');
+      assert(listText.includes('dsh-doublecheck') && listText.includes('code-review'), 'list view rendered both groups after fetch');
+      assert(listText.includes('回收站') && listText.includes('安装技能'), 'list header shows 回收站 / 安装技能');
+
+      // 9) pathless guard: clicking the bundled card must NOT open detail.
+      const bundledCard = viewContainer.querySelector('[data-skill-name="code-review"]');
+      bundledCard.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await delay(200);
+      assert(viewContainer.textContent.includes('回收站'), 'bundled card click stays on list (no 404 detail)');
+      assert(!viewContainer.textContent.includes('交付纪律'), 'bundled card did not open detail view');
+
+      // 10) user card → detail; back → list.
+      const userCard = viewContainer.querySelector('[data-skill-name="dsh-doublecheck"]');
+      userCard.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await delay(300);
+      assert(viewContainer.textContent.includes('交付纪律'), 'user card opened detail view (frontmatter+body rendered)');
+      assert(viewContainer.textContent.includes('~/.dsh/skills/dsh-doublecheck/SKILL.md'), 'detail shows the path line from merged item');
+      const backBtn = Array.from(viewContainer.querySelectorAll('button')).find((b) => b.textContent.includes('返回列表'));
+      assert(!!backBtn, 'detail back button present');
+      backBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await delay(300);
+      assert(viewContainer.textContent.includes('安装技能'), 'back returned to the list view');
+
+      // 11) trash view → back.
+      const trashBtn = Array.from(viewContainer.querySelectorAll('button')).find((b) => b.textContent.includes('回收站'));
+      trashBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await delay(300);
+      assert(viewContainer.textContent.includes('回收站是空的'), 'trash view rendered (empty state)');
+      const trashBack = Array.from(viewContainer.querySelectorAll('button')).find((b) => b.textContent.includes('返回'));
+      trashBack.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await delay(300);
+      assert(viewContainer.textContent.includes('安装技能'), 'trash back returned to list');
+
+      // 12) install flow → cancel.
+      const installBtn = Array.from(viewContainer.querySelectorAll('button')).find((b) => b.textContent.includes('安装技能'));
+      installBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await delay(200);
+      assert(viewContainer.textContent.includes('点击选择，或将 zip 拖到这里'), 'install flow rendered (dropzone)');
+      const cancelBtn = Array.from(viewContainer.querySelectorAll('button')).find((b) => b.textContent.includes('取消'));
+      cancelBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await delay(200);
+      assert(viewContainer.textContent.includes('安装技能'), 'install cancel returned to list');
+
+      // 13) top-level close: the panel close button calls controller.close().
+      const closeBtn = viewContainer.querySelector('button[aria-label="关闭面板"]');
+      assert(!!closeBtn, 'list header has the top-level close button (aria-label=关闭面板)');
+      closeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await delay(150);
+      assert(!document.documentElement.hasAttribute(activeAttr), 'close button removed the activation attribute');
+
+      // 14) disposer tears down cleanly.
+      dispose();
+      entryRoot.unmount();
+      assert(document.querySelector('[data-dsh-skill-center-view]') === null, 'dispose removed the panel container');
+
+      // Machine-verifiable summary: the ONLY number the report quotes.
+      log(`assertions: ${assertPassed}/${assertTotal} passed (${assertFailed} failed)`);
+      if (assertFailed === 0) {
+        statusEl.textContent = `ALL CHECKS PASSED (${assertPassed}/${assertTotal})`;
+        statusEl.style.background = '#1f883d';
+      } else {
+        statusEl.textContent = `FAILED (${assertPassed}/${assertTotal})`;
+        statusEl.style.background = '#d1242f';
+      }
+      log('— harness complete —');
+
+      // Screenshot mode (?shot=1): re-open the panel and leave it visible.
+      if (new URLSearchParams(location.search).get('shot') === '1') {
+        exports.apply(ctx);
+        injected['knj.menu.item']();
+        const latest = menuRegistrations[menuRegistrations.length - 1];
+        const menuRoot = ReactDOM.createRoot(menuHost);
+        menuRoot.render(latest.component());
+        await delay(150);
+        const btn = menuHost.querySelector('button.skill-center-entry');
+        btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await delay(600);
+        statusEl.textContent = `SCREENSHOT MODE — panel open (${assertPassed}/${assertTotal} passed)`;
+      }
+    } catch (err) {
+      fail('exception: ' + (err && err.stack || err));
+    }
+  }
+
+  main();
+})();
+</script>
+</body>
+</html>
