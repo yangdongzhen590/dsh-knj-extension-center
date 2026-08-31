@@ -1,6 +1,6 @@
 {
   "name": "dsh-knj-extension-center",
-  "version": "2026.9.10",
+  "version": "2026.9.11",
   "description": "DSH skill center: browse by region, install from zip, manage (enable/disable, uninstall, trash restore, search).",
   "homepage": "https://github.com/yangdongzhen590/dsh-knj-extension-center",
   "repository": {
@@ -33,7 +33,8 @@
   ],
   "dependencies": {
     "jszip": "^3.10.1",
-    "yauzl": "^3.2.0"
+    "yauzl": "^3.2.0",
+    "dsh-knj-menu": "^2026.9.10"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
