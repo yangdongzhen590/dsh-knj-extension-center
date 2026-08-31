@@ -1,7 +1,12 @@
 {
   "name": "dsh-knj-extension-center",
-  "version": "0.1.0",
+  "version": "2026.8.310",
   "description": "DSH skill center: browse by region, install from zip, manage (enable/disable, uninstall, trash restore, search).",
+  "homepage": "https://github.com/yangdongzhen590/dsh-knj-extension-center",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yangdongzhen590/dsh-knj-extension-center.git"
+  },
   "type": "module",
   "main": "./lib/index.js",
   "exports": {
