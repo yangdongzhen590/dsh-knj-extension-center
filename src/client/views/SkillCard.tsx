@@ -19,6 +19,7 @@ export interface SkillCardProps {
   error?: string;
   onOpen: (skill: SkillItem) => void;
   onToggle: (skill: SkillItem, enabled: boolean) => void;
+  onDownload?: (skill: SkillItem) => void;
   onUninstall: (skill: SkillItem) => void;
 }
 
@@ -59,6 +60,10 @@ function CopyIcon() {
 }
 
 /** Trash icon (design doc: uninstall button). */
+function DownloadIcon() {
+  return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11" /></svg>;
+}
+
 function TrashIcon() {
   return (
     <svg
@@ -75,7 +80,7 @@ function TrashIcon() {
   );
 }
 
-export function SkillCard({ skill, error, onOpen, onToggle, onUninstall }: SkillCardProps) {
+export function SkillCard({ skill, error, onOpen, onToggle, onDownload, onUninstall }: SkillCardProps) {
   // Bundled / runtime skills have no filesystem path: nothing to toggle,
   // copy or uninstall — and no file detail to open. Their cards are rendered
   // as an explicit disabled state (not clickable, no role/tabIndex, visual
@@ -171,6 +176,11 @@ export function SkillCard({ skill, error, onOpen, onToggle, onUninstall }: Skill
             <span className={styles.switchThumb} />
           </button>
           <span className={styles.footSpacer} />
+          {onDownload !== undefined && (
+            <button type="button" className={styles.iconBtn} aria-label={zh['card.downloadTitle']} title={zh['card.downloadTitle']} onClick={(event) => { event.stopPropagation(); onDownload(skill); }}>
+              <DownloadIcon />
+            </button>
+          )}
           <button
             type="button"
             className={styles.iconBtn}

@@ -211,6 +211,23 @@ export function ListView({ api, onOpenDetail, onStartInstall, onOpenTrash, onCha
     }
   };
 
+  const handleDownload = async (skill: SkillItem) => {
+    if (skill.path === undefined) return;
+    try {
+      const blob = await api.download(skill.name, skill.path);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${skill.name}.zip`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      clearError(skill.name);
+    } catch (err) {
+      const detail = err instanceof Error && err.message !== '' ? err.message : String(err);
+      setErrors((prev) => ({ ...prev, [skill.name]: zh['card.downloadFail'].replace('{error}', detail) }));
+    }
+  };
+
   const handleUninstall = async (skill: SkillItem) => {
     if (skill.path === undefined) return;
     try {
@@ -302,6 +319,7 @@ export function ListView({ api, onOpenDetail, onStartInstall, onOpenTrash, onCha
                     error={errors[skill.name]}
                     onOpen={(s) => onOpenDetail(s)}
                     onToggle={handleToggle}
+                    onDownload={handleDownload}
                     onUninstall={handleUninstall}
                   />
                 ))}
