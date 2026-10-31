@@ -7,6 +7,7 @@ import { en, zh, type SkillCenterKey } from '../src/client/locales';
 
 const LIST_PATH = '/api/dsh-skill-center/list';
 const DETAIL_PATH = '/api/dsh-skill-center/detail';
+const DOWNLOAD_PATH = '/api/dsh-skill-center/download';
 const INSTALL_PATH = '/api/dsh-skill-center/install';
 const SET_ENABLED_PATH = '/api/dsh-skill-center/set-enabled';
 const UNINSTALL_PATH = '/api/dsh-skill-center/uninstall';
@@ -62,6 +63,17 @@ describe('SkillApi', () => {
     // frontmatter/body arrive verbatim (not parsed by the client)
     expect(detail.frontmatter).toBe('---\nname: demo\n---');
     expect(detail.body).toBe('# demo\n');
+  });
+
+  it('download returns the zip response and sends name/path query params', async () => {
+    const blob = new Blob(['zip']);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, blob: async () => blob });
+    vi.stubGlobal('fetch', fetchMock);
+    const api = new SkillApi();
+    await expect(api.download('demo', '/skills/demo/SKILL.md')).resolves.toBe(blob);
+    expect(fetchMock.mock.calls[0][0]).toContain(DOWNLOAD_PATH);
+    expect(fetchMock.mock.calls[0][0]).toContain('name=demo');
+    expect(fetchMock.mock.calls[0][0]).toContain('path=%2Fskills%2Fdemo%2FSKILL.md');
   });
 
   it('setEnabled POSTs a JSON body with name, path and enabled', async () => {

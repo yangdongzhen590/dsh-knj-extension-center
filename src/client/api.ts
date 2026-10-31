@@ -85,6 +85,7 @@ const PATHS = {
   trashRestore: '/api/dsh-skill-center/trash/restore',
   trashPurge: '/api/dsh-skill-center/trash/purge',
   detail: '/api/dsh-skill-center/detail',
+  download: '/api/dsh-skill-center/download',
 } as const;
 
 /** Non-2xx responses become this; `message` is the host's `{ error }` text. */
@@ -164,6 +165,22 @@ export class SkillApi {
   /** Raw skill detail; frontmatter and body arrive verbatim (not parsed). */
   detail(name: string): Promise<DetailPayload> {
     return this.getJson<DetailPayload>(PATHS.detail + SkillApi.queryString({ name }));
+  }
+
+  /** Download a user skill directory as a zip blob. */
+  async download(name: string, path: string): Promise<Blob> {
+    const res = await fetch(PATHS.download + SkillApi.queryString({ name, path }));
+    if (!res.ok) {
+      let message = `skill-center request failed (${res.status})`;
+      try {
+        const data = (await res.json()) as { error?: unknown };
+        if (typeof data.error === 'string' && data.error !== '') message = data.error;
+      } catch {
+        // keep status fallback
+      }
+      throw new ApiError(message, res.status);
+    }
+    return res.blob();
   }
 
   /** Toggle model invocation for a user skill (writes disable-model-invocation). */

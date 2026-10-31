@@ -99,6 +99,10 @@ function CopyIcon() {
 }
 
 /** Trash icon (design doc: uninstall button). */
+function DownloadIcon() {
+  return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11" /></svg>;
+}
+
 function TrashIcon() {
   return (
     <svg
@@ -131,6 +135,7 @@ export function DetailView({ api, name, item, onBack, onUninstall, onToggle }: D
   const [status, setStatus] = useState<'loading' | 'error' | 'ready'>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setStatus('loading');
@@ -170,6 +175,23 @@ export function DetailView({ api, name, item, onBack, onUninstall, onToggle }: D
     }
   };
 
+  const handleDownload = async () => {
+    if (item?.path === undefined) return;
+    try {
+      const blob = await api.download(name, item.path);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${name}.zip`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setDownloadError(null);
+    } catch (err) {
+      const detail = err instanceof Error && err.message !== '' ? err.message : String(err);
+      setDownloadError(zh['detail.downloadFail'].replace('{error}', detail));
+    }
+  };
+
   const handleUninstall = () => {
     const message = zh['uninstall.confirm'].replace('{name}', name);
     if (window.confirm(message)) onUninstall();
@@ -189,6 +211,10 @@ export function DetailView({ api, name, item, onBack, onUninstall, onToggle }: D
         <span className={styles.spacer} />
         {hasActions && (
           <div className={styles.detailActions}>
+            <button type="button" className={`${styles.btn} ${styles.btnSm}`} onClick={() => void handleDownload()}>
+              <DownloadIcon />
+              {zh['detail.download']}
+            </button>
             <button type="button" className={`${styles.btn} ${styles.btnSm}`} onClick={handleCopy}>
               <CopyIcon />
               {zh['detail.copyPath']}
@@ -259,9 +285,9 @@ export function DetailView({ api, name, item, onBack, onUninstall, onToggle }: D
           </>
         )}
 
-        {copyError !== null && (
+        {(copyError !== null || downloadError !== null) && (
           <div className={styles.cardError} role="alert">
-            {copyError}
+            {downloadError ?? copyError}
           </div>
         )}
       </div>

@@ -46,7 +46,7 @@ async function makeZip(entries: Record<string, string>): Promise<Buffer> {
 
 // 用真实 http 请求打到路由 handler 的辅助：构造 req/res 双端
 function request(handler: (req: IncomingMessage, res: ServerResponse) => Promise<void> | void, method: string, url: string, body?: unknown, headers: Record<string, string> = {}) {
-  return new Promise<{ status: number; json: any }>((resolve, reject) => {
+  return new Promise<{ status: number; json: any; headers: Record<string, string | string[] | undefined>; body: Buffer }>((resolve, reject) => {
     const server: Server = createServer((req, res) => { handler(req as any, res as any); });
     server.on('error', reject);
     server.listen(0, '127.0.0.1', () => {
@@ -55,7 +55,7 @@ function request(handler: (req: IncomingMessage, res: ServerResponse) => Promise
       const r = httpRequest(
         { host: '127.0.0.1', port: addr.port, method, path: url, headers: { host: '127.0.0.1:3080', 'sec-fetch-site': 'same-origin', ...(payload ? { 'content-type': 'application/json' } : {}), ...headers } },
         (res) => {
-          let data = ''; res.on('data', (c) => (data += c)); res.on('end', () => { server.close(); resolve({ status: res.statusCode!, json: JSON.parse(data) }); });
+          const chunks: Buffer[] = []; res.on('data', (c) => chunks.push(Buffer.from(c))); res.on('end', () => { const bodyBuffer = Buffer.concat(chunks); server.close(); const contentType = String(res.headers['content-type'] ?? ''); resolve({ status: res.statusCode!, headers: res.headers, body: bodyBuffer, json: contentType.includes('json') ? JSON.parse(bodyBuffer.toString()) : { body: bodyBuffer.toString('base64'), contentType } }); });
         },
       );
       r.on('error', (err) => { server.close(); reject(err); });
@@ -239,6 +239,24 @@ describe('skill-center routes', () => {
     expect(trash.json.items.some((i: any) => i.name === 'my-skill')).toBe(true);
   });
 
+  it('downloads a user skill as a zip package and rejects stale paths', async () => {
+    const dsh = tmpDir();
+    const file = makeSkill(dsh, 'demo', '---\nname: demo\ndescription: demo skill\n---\n# Demo\nSome body text');
+    writeFileSync(join(dsh, 'skills', 'demo', 'references.md'), 'reference');
+    const handlers: Route[] = [];
+    const routes = makeRoutes(makeCtx(handlers) as any, makeDeps(dsh) as any);
+    const handler = routes.find(r => r.path === ROUTES.download)!.handler;
+    const res = await request(handler, 'GET', ROUTES.download + '?name=demo&path=' + encodeURIComponent(file));
+    expect(res.status).toBe(200);
+    expect(res.json.contentType).toContain('application/zip');
+    const zip = await JSZip.loadAsync(Buffer.from(res.json.body, 'base64'));
+    expect(await zip.file('demo/SKILL.md')!.async('string')).toContain('# Demo');
+    expect(await zip.file('demo/references.md')!.async('string')).toBe('reference');
+
+    const stale = await request(handler, 'GET', ROUTES.download + '?name=demo&path=' + encodeURIComponent(join(dsh, 'skills', 'demo', 'stale.md')));
+    expect(stale.status).toBe(409);
+  });
+
   it('detail returns frontmatter text and body for a user skill', async () => {
     const dsh = tmpDir();
     makeSkill(dsh, 'demo', '---\nname: demo\ndescription: demo skill\n---\n# Demo\nSome body text');
@@ -283,7 +301,7 @@ describe('skill-center routes', () => {
     expect(res.status).toBe(405);
   });
 
-  it('exports all nine route paths', () => {
+  it('exports all ten route paths', () => {
     expect(ROUTES).toMatchObject({
       list: '/api/dsh-skill-center/list',
       install: '/api/dsh-skill-center/install',
@@ -293,6 +311,7 @@ describe('skill-center routes', () => {
       trashRestore: '/api/dsh-skill-center/trash/restore',
       trashPurge: '/api/dsh-skill-center/trash/purge',
       detail: '/api/dsh-skill-center/detail',
+      download: '/api/dsh-skill-center/download',
       health: '/api/dsh-skill-center/health',
     });
   });

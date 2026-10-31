@@ -2,7 +2,7 @@
 
 DSH 技能中心插件：按区域浏览已加载的 skill、从 zip 安装新技能、管理（启用/禁用模型可调用、卸载入回收站、回收站恢复/彻底删除、搜索）。
 
-- **宿主端（host）**：`/api/dsh-skill-center` 路由家族（list/install/set-enabled/uninstall/trash/detail），通过 loopback 信任围栏提供服务。
+- **宿主端（host）**：`/api/dsh-skill-center` 路由家族（list/install/set-enabled/uninstall/trash/detail/download），通过 loopback 信任围栏提供服务。
 - **客户端（client）**：浏览器面板，挂载到主区域（center column），入口注册在侧边栏 knj-menu 区的「技能中心」行。
 
 ## 功能
@@ -15,14 +15,14 @@ DSH 技能中心插件：按区域浏览已加载的 skill、从 zip 安装新�
 | 安装 | 上传 zip（≤8MB）：本地解析预览（单一 `<name>/SKILL.md`、kebab-case 名称、description 必填）→ 确认信息 → 完成；重名冲突弹窗支持「覆盖（旧版入回收站）」 |
 | 启停 | 模型可调用开关改写 `disable-model-invocation`（仅文件技能） |
 | 卸载 | 移入可恢复回收站（非永久删除） |
+| 下载 | 用户文件技能导出为 `<name>.zip`；系统内置/运行时技能不提供下载 | 
 | 回收站 | 恢复 / 彻底删除 / 清空；restore 409（原路径被占用）等失败内联展示 |
 
 ## 安装
 
 ```bash
-# 在插件目录打包并安装到 web profile
-npm.cmd pack
-dsh plugin --profile web add .\dsh-knj-extension-center-0.1.0.tgz
+# 一条命令同时安装插件与菜单宿主 dsh-knj-menu（已声明为 npm 依赖，版本自动配套）
+dsh plugin --profile web add dsh-knj-extension-center dsh-knj-menu
 ```
 
 安装后重启 `dsh web`（或确认 HMR），浏览器打开 http://127.0.0.1:3080：
@@ -51,6 +51,7 @@ dsh plugin --profile web remove dsh-knj-extension-center
 | --- | --- | --- |
 | GET | `/api/dsh-skill-center/list` | 分组技能列表；`?q=` 搜索、`?level=` 过滤 |
 | GET | `/api/dsh-skill-center/detail` | `?name=` 原始详情（frontmatter + body） |
+| GET | `/api/dsh-skill-center/download` | `?name=&path=` 下载用户技能 zip 包 |
 | POST | `/api/dsh-skill-center/install` | zip base64 安装；`{ overwrite }` 覆盖 |
 | POST | `/api/dsh-skill-center/set-enabled` | `{ name, path, enabled }` 模型可调用开关 |
 | POST | `/api/dsh-skill-center/uninstall` | `{ name, path }` 卸载入回收站 |

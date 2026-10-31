@@ -6,8 +6,9 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Context } from '@deepseek-ai/cordis';
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { basename, dirname, join, relative, sep } from 'node:path';
+import JSZip from 'jszip';
 import { collectSkills, type SkillEntry, type SkillLevel, type SkillRegistry } from './collect';
 import { installZip, parseZipMetadata, ZipInstallError } from './zip-install';
 import { listTrash, purgeTrashItem, restoreTrashItem, trashSkillDir, type TrashItem } from './trash';
@@ -25,6 +26,7 @@ export const ROUTES = {
   trashRestore: '/api/dsh-skill-center/trash/restore',
   trashPurge: '/api/dsh-skill-center/trash/purge',
   detail: '/api/dsh-skill-center/detail',
+  download: '/api/dsh-skill-center/download',
   health: '/api/dsh-skill-center/health',
 } as const;
 
@@ -62,6 +64,23 @@ const LEVEL_GROUPS: ReadonlyArray<{ key: SkillLevel; title: string; hint: string
   { key: 'user-dsh', title: 'User skills (~/.dsh/skills)', hint: 'Global skills shared by all projects on this machine' },
   { key: 'runtime', title: 'Runtime registered', hint: 'Skills registered at runtime by plugins' },
 ];
+
+async function zipSkill(name: string, skillPath: string): Promise<Buffer> {
+  const root = skillPath.endsWith(`${sep}SKILL.md`) ? dirname(skillPath) : skillPath;
+  const zip = new JSZip();
+  const add = (absolute: string, archivePath: string): void => {
+    const stat = lstatSync(absolute);
+    if (stat.isSymbolicLink()) throw new Error('linked skill files cannot be downloaded');
+    if (stat.isDirectory()) {
+      for (const entry of readdirSync(absolute)) add(join(absolute, entry), `${archivePath}/${entry}`);
+      return;
+    }
+    if (!stat.isFile()) return;
+    zip.file(archivePath, readFileSync(absolute));
+  };
+  add(root, name);
+  return Buffer.from(await zip.generateAsync({ type: 'nodebuffer' }));
+}
 
 /** URL query helper (first value, decoded). */
 function queryParam(url: URL, name: string): string | undefined {
@@ -352,6 +371,40 @@ export function makeRoutes(ctx: Context, deps: SkillCenterRoutesDeps): Route[] {
         } catch (error) {
           logger.warn(error);
           writeJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+        }
+      },
+    },
+    {
+      kind: 'exact',
+      path: ROUTES.download,
+      handler: async (req, res) => {
+        if (!guard(req, res, 'GET')) return;
+        try {
+          const url = new URL(req.url ?? '/', 'http://x');
+          const name = queryParam(url, 'name');
+          const path = queryParam(url, 'path');
+          if (name === undefined || !NAME_PATTERN.test(name) || path === undefined || path.trim() === '') {
+            writeJson(res, 400, { error: 'expected name and path query parameters' });
+            return;
+          }
+          const skill = await resolveMutationSkill(name, path, DEFAULT_CWD(), res);
+          if (skill === undefined) return;
+          if (!skill.path.endsWith(`${sep}SKILL.md`)) {
+            writeJson(res, 400, { error: 'only directory skills can be downloaded' });
+            return;
+          }
+          const archive = await zipSkill(name, skill.path);
+          res.writeHead(200, {
+            'content-type': 'application/zip',
+            'content-disposition': `attachment; filename="${name}.zip"`,
+            'content-length': String(archive.length),
+            'cache-control': 'no-store',
+            'referrer-policy': 'no-referrer',
+          });
+          res.end(archive);
+        } catch (error) {
+          logger.warn(error);
+          writeJson(res, 500, { error: 'skill download failed' });
         }
       },
     },
